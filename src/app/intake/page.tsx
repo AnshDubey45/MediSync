@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mic, UploadCloud, AlertCircle, ArrowRight, Activity } from "lucide-react";
 import Link from "next/link";
+import { calculateTriage, TriageResult } from "@/lib/triage/engine";
+import { ExplainabilityCard } from "@/components/triage/explainability-card";
 
 type IntakeData = {
   fullName: string;
@@ -32,6 +34,7 @@ export default function IntakePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [caseId, setCaseId] = useState<string | null>(null);
+  const [triageResult, setTriageResult] = useState<TriageResult | null>(null);
 
   const updateData = (field: keyof IntakeData, value: string) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -49,6 +52,15 @@ export default function IntakePage() {
     setIsProcessing(true);
     // Simulate AI Triage delay
     await new Promise((resolve) => setTimeout(resolve, 2000));
+    
+    const result = calculateTriage({
+      age: parseInt(data.age) || 30,
+      symptoms: data.symptoms,
+      duration: data.duration,
+      conditions: data.conditions
+    });
+    
+    setTriageResult(result);
     setCaseId(`MS-${Math.floor(1000 + Math.random() * 9000)}`);
     setIsProcessing(false);
     setCurrentStep(4);
@@ -59,7 +71,7 @@ export default function IntakePage() {
     if (!isRecording) {
       // Mock transcription
       setTimeout(() => {
-        updateData("symptoms", data.symptoms + (data.symptoms ? " " : "") + "I've been experiencing a severe headache and some shortness of breath since yesterday morning.");
+        updateData("symptoms", data.symptoms + (data.symptoms ? " " : "") + "I've been experiencing a severe chest pain and some shortness of breath since yesterday morning.");
         setIsRecording(false);
       }, 3000);
     }
@@ -256,47 +268,37 @@ export default function IntakePage() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.4 }}
               >
-                <Card className="border shadow-sm overflow-hidden border-primary/20">
-                  <div className="bg-primary/5 p-8 flex flex-col items-center text-center border-b border-primary/10">
-                    <div className="h-16 w-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 text-primary">
-                      <Activity className="h-8 w-8" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-slate-900 mb-2">Intake Received</h2>
-                    <p className="text-muted-foreground max-w-sm">
-                      Your case has been added to the doctor's priority queue for review.
-                    </p>
-                  </div>
-                  <CardContent className="p-8">
-                    <div className="flex flex-col items-center gap-6">
-                      <div className="text-center">
-                        <div className="text-sm text-muted-foreground mb-1">Case Reference</div>
-                        <div className="text-2xl font-mono font-bold tracking-wider text-slate-900">{caseId}</div>
+                <div className="space-y-6">
+                  <Card className="border shadow-sm overflow-hidden border-primary/20">
+                    <div className="bg-primary/5 p-8 flex flex-col items-center text-center border-b border-primary/10">
+                      <div className="h-16 w-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 text-primary">
+                        <Activity className="h-8 w-8" />
                       </div>
-                      
-                      <div className="w-full max-w-sm bg-slate-50 border rounded-lg p-4 flex flex-col gap-3">
-                        <div className="flex justify-between items-center pb-3 border-b">
-                          <span className="text-sm text-slate-500">Initial Priority</span>
-                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800 border-amber-200">
-                            HIGH
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-slate-500">Status</span>
-                          <span className="font-medium text-slate-700">Waiting for Review</span>
+                      <h2 className="text-2xl font-bold text-slate-900 mb-2">Triage Complete</h2>
+                      <p className="text-muted-foreground max-w-sm">
+                        Your case has been analyzed and added to the doctor's queue.
+                      </p>
+                    </div>
+                    <CardContent className="p-8">
+                      <div className="flex flex-col items-center gap-6">
+                        <div className="text-center">
+                          <div className="text-sm text-muted-foreground mb-1">Case Reference</div>
+                          <div className="text-2xl font-mono font-bold tracking-wider text-slate-900">{caseId}</div>
                         </div>
                       </div>
-                      
-                      <div className="text-xs text-center text-muted-foreground">
-                        Initial triage suggestion — clinician review required.
-                      </div>
-                    </div>
-                  </CardContent>
-                  <CardFooter className="bg-slate-50 border-t p-4 flex justify-center">
+                    </CardContent>
+                  </Card>
+                  
+                  {triageResult && (
+                    <ExplainabilityCard result={triageResult} />
+                  )}
+
+                  <div className="flex justify-center mt-6">
                     <Link href="/">
                       <Button variant="outline">Return to Home</Button>
                     </Link>
-                  </CardFooter>
-                </Card>
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
