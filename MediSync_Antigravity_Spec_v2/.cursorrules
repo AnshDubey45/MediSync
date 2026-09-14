@@ -1,0 +1,280 @@
+# MediSync — AI Coding Rules v2
+
+## Product
+
+MediSync is a software-based distributed patient intake and initial triage prototype.
+
+The source proposal defines:
+
+Patient voice/text intake
+→ backend processing
+→ AI-based priority
+→ doctor priority queue
+→ Sapling SCM.
+
+Do not turn this into a generic hospital CRUD application.
+
+## Architecture
+
+Use the v2 stack:
+
+- Next.js
+- TypeScript
+- Tailwind
+- shadcn/ui
+- Radix primitives
+- Lucide
+- Motion
+- React Hook Form
+- Zod
+- Supabase
+- PostgreSQL
+- Supabase Realtime
+- Supabase Storage
+- Supabase Auth
+- Vitest
+- React Testing Library
+- Playwright
+
+Do NOT introduce Spring Boot unless explicitly requested.
+
+Do NOT introduce a separate backend server unless there is a demonstrated requirement that Next.js/Supabase cannot reasonably satisfy.
+
+## Design
+
+The quality bar is:
+
+**21st.dev-inspired × modern health-tech × Linear × clinical operations**
+
+The application is **light theme only**. Use a cohesive **blue-first** design system. Read `DESIGN_SYSTEM_21ST.md` before implementing UI.
+
+Use semantic shadcn CSS variables and OKLCH-compatible tokens. Do not scatter arbitrary hex colors through components.
+
+Preferred 21st.dev-inspired patterns:
+- bento feature grids
+- polished animated hero
+- subtle blue spotlight/hover cards
+- one restrained shimmer/highlight CTA
+- command palette
+- drawer/sheet
+- activity timeline
+- skeleton loading
+- number ticker for live metrics
+- tasteful border/hover reveal
+
+Avoid:
+
+- generic templates
+- Bootstrap styling
+- dark-mode-only components
+- excessive glassmorphism
+- neon gradients
+- random colours
+- purple/pink palettes that conflict with the brand
+- emoji as primary icons
+- unnecessary charts
+- unnecessary animation
+- animated backgrounds behind clinical data
+
+Use a consistent design system.
+
+## Components
+
+Prefer shadcn/ui and local reusable components.
+
+Use 21st.dev patterns as inspiration and selectively adapt components into the local design system. Do not copy an entire template. Every selected component must be recolored, resized and behaviorally adapted to the light-blue MediSync system.
+
+Do not import an entire template.
+
+## TypeScript
+
+- Strict mode.
+- No `any` unless there is a documented unavoidable boundary.
+- Define domain types.
+- Reuse shared types.
+- Validate external data.
+
+## Next.js
+
+- App Router.
+- Server Components by default.
+- Client Components only when interaction/state/browser APIs require them.
+- Route Handlers for backend endpoints.
+- Server Actions only when appropriate.
+- Never expose server secrets.
+
+## Supabase
+
+Use:
+
+- Postgres for relational data.
+- Auth for users.
+- Storage for private uploads.
+- Realtime for doctor queue.
+- Edge Functions only when useful.
+
+Enable RLS.
+
+Never bypass authorization simply because the project is a prototype.
+
+## Data
+
+Use synthetic patient data only.
+
+Never place real patient information into seed files.
+
+## Triage
+
+The scoring engine must be deterministic, configurable and explainable.
+
+Rules come from:
+
+`config/triage/ai_scoring_rules.json`
+
+Do not scatter scoring constants through UI code.
+
+Every result must carry:
+
+- score
+- priority
+- factors
+- rule version
+
+The UI must say:
+
+`Initial triage suggestion — clinician review required.`
+
+Never claim diagnosis.
+
+## Speech
+
+Speech must use an adapter.
+
+Preferred order:
+
+1. Browser speech recognition when available.
+2. Optional local speech-to-text adapter.
+3. Text fallback.
+
+Never make a paid speech API mandatory.
+
+Always let users edit the transcript before submission.
+
+## Images
+
+- Validate type.
+- Validate size.
+- Safe path.
+- Private storage.
+- Preview.
+- Remove/replace.
+
+Do not interpret the image as a medical diagnosis.
+
+## Realtime
+
+Use Supabase Realtime for queue changes.
+
+Avoid implementing a custom WebSocket server unless required.
+
+## API
+
+Suggested:
+
+POST /api/intake
+GET /api/cases
+GET /api/cases/:id
+POST /api/cases/:id/triage
+PATCH /api/cases/:id/status
+GET /api/dashboard/summary
+GET /api/configuration-items
+GET /api/scm/changes
+
+Validate request bodies with Zod.
+
+## UI States
+
+Every major interaction needs:
+
+- loading
+- empty
+- error
+- success
+- disabled
+- focus
+- hover
+
+## Accessibility
+
+- Keyboard navigation.
+- Semantic HTML.
+- Labels.
+- Focus indicators.
+- Colour is not the only status signal.
+- Reduced motion.
+- Good contrast.
+
+## SCM
+
+Sapling is the project SCM.
+
+Use small commits.
+
+Examples:
+
+feat: add patient intake
+feat: add triage engine
+feat: add realtime queue
+fix: handle empty transcript
+config: update triage rules
+docs: update architecture
+
+Do not create giant `final project` commits.
+
+## Configuration Items
+
+The course proposal identifies:
+
+- application.yml
+- ai_scoring_rules.json
+- whisper_params.yaml
+- nginx.conf
+- database_schema.sql
+
+Maintain their conceptual traceability.
+
+Do not pretend a file is actively used if the new architecture replaced it. Document the mapping.
+
+## Demo Reliability
+
+The application must support:
+
+`DEMO_MODE`
+
+Seeded data must allow the complete presentation even if an external service is unavailable.
+
+## Dependencies
+
+Before adding a package:
+
+1. Is it necessary?
+2. Is there an existing package?
+3. Is it free/open-source?
+4. Does it increase complexity?
+
+Prefer fewer dependencies.
+
+## Before finishing
+
+Check:
+
+- Typecheck.
+- Lint.
+- Tests.
+- Build.
+- Responsive layout.
+- Console errors.
+- Accessibility basics.
+- RLS/security.
+- No secrets.
+- No unrelated rewrites.
