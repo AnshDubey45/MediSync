@@ -11,6 +11,7 @@ import { Mic, UploadCloud, AlertCircle, ArrowRight, Activity } from "lucide-reac
 import Link from "next/link";
 import { calculateTriage, TriageResult } from "@/lib/triage/engine";
 import { ExplainabilityCard } from "@/components/triage/explainability-card";
+import { supabase } from "@/lib/supabase/client";
 
 type IntakeData = {
   fullName: string;
@@ -50,9 +51,8 @@ export default function IntakePage() {
 
   const handleSubmit = async () => {
     setIsProcessing(true);
-    // Simulate AI Triage delay
-    await new Promise((resolve) => setTimeout(resolve, 2000));
     
+    // 1. Calculate Triage locally
     const result = calculateTriage({
       age: parseInt(data.age) || 30,
       symptoms: data.symptoms,
@@ -60,8 +60,45 @@ export default function IntakePage() {
       conditions: data.conditions
     });
     
+    const newCaseId = `MS-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    try {
+      // 2. Insert into Supabase (Patients)
+      const { data: patientData, error: patientError } = await supabase
+        .from('patients')
+        .insert({
+          full_name: data.fullName,
+          age: parseInt(data.age) || 30,
+          conditions: data.conditions
+        })
+        .select()
+        .single();
+
+      if (patientError) throw patientError;
+
+      // 3. Insert into Supabase (Cases)
+      const { error: caseError } = await supabase
+        .from('cases')
+        .insert({
+          patient_id: patientData.id,
+          case_reference: newCaseId,
+          symptoms: data.symptoms,
+          duration: data.duration,
+          score: result.score,
+          priority: result.priority,
+          status: 'Waiting',
+          triage_factors: result.factors
+        });
+
+      if (caseError) throw caseError;
+
+    } catch (error) {
+      console.error("Error submitting triage:", error);
+      // In a real app, show error toast here
+    }
+    
     setTriageResult(result);
-    setCaseId(`MS-${Math.floor(1000 + Math.random() * 9000)}`);
+    setCaseId(newCaseId);
     setIsProcessing(false);
     setCurrentStep(4);
   };

@@ -1,21 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PriorityBadge } from "@/components/ui/priority-badge";
 import { ExplainabilityCard } from "@/components/triage/explainability-card";
 import { TriageResult } from "@/lib/triage/engine";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Filter, MoreHorizontal, FileText, ChevronRight, Activity } from "lucide-react";
+import { Clock, Filter, FileText, ChevronRight, Activity } from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
 
-// Mock Data
 type CaseStatus = "Waiting" | "Reviewing" | "Resolved";
 
 interface PatientCase {
-  id: string;
+  id: string; // the case id (uuid)
   patientName: string;
   age: number;
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
@@ -24,103 +24,104 @@ interface PatientCase {
   waitTime: string;
   status: CaseStatus;
   triageResult: TriageResult;
+  case_reference: string;
+  created_at: string;
 }
 
-const MOCK_CASES: PatientCase[] = [
-  {
-    id: "MS-8492",
-    patientName: "Robert T.",
-    age: 68,
-    priority: "CRITICAL",
-    score: 85,
-    symptoms: "Severe chest pain radiating to left arm, shortness of breath, dizzy.",
-    waitTime: "2 mins",
-    status: "Waiting",
-    triageResult: {
-      score: 85,
-      priority: "CRITICAL",
-      rule_version: "triage-v1.2",
-      factors: [
-        { factor_name: "Severe Symptom Indicator", contribution: 40, reason: "Matched critical risk keyword in symptoms." },
-        { factor_name: "Sudden Onset", contribution: 30, reason: "Symptoms appeared very recently." },
-        { factor_name: "Age Factor (65+)", contribution: 15, reason: "Patient is in an older age bracket." }
-      ]
-    }
-  },
-  {
-    id: "MS-3102",
-    patientName: "Emma W.",
-    age: 34,
-    priority: "HIGH",
-    score: 65,
-    symptoms: "High fever 103F, severe headache, neck stiffness.",
-    waitTime: "8 mins",
-    status: "Reviewing",
-    triageResult: {
-      score: 65,
-      priority: "HIGH",
-      rule_version: "triage-v1.2",
-      factors: [
-        { factor_name: "High Symptom Indicator", contribution: 25, reason: "Matched high risk keyword in symptoms." },
-        { factor_name: "Recent Onset", contribution: 40, reason: "Symptoms appeared recently." }
-      ]
-    }
-  },
-  {
-    id: "MS-9281",
-    patientName: "James L.",
-    age: 42,
-    priority: "MEDIUM",
-    score: 45,
-    symptoms: "Persistent cough for 2 weeks, mild chest discomfort when coughing.",
-    waitTime: "14 mins",
-    status: "Waiting",
-    triageResult: {
-      score: 45,
-      priority: "MEDIUM",
-      rule_version: "triage-v1.2",
-      factors: [
-        { factor_name: "Medium Symptom Indicator", contribution: 10, reason: "Matched medium risk keyword in symptoms." },
-        { factor_name: "Ongoing Issue", contribution: 35, reason: "Symptoms have been ongoing for some time." }
-      ]
-    }
-  },
-  {
-    id: "MS-5512",
-    patientName: "Sarah M.",
-    age: 28,
-    priority: "LOW",
-    score: 15,
-    symptoms: "Sprained ankle while jogging, mild swelling.",
-    waitTime: "22 mins",
-    status: "Waiting",
-    triageResult: {
-      score: 15,
-      priority: "LOW",
-      rule_version: "triage-v1.2",
-      factors: [
-        { factor_name: "Medium Symptom Indicator", contribution: 10, reason: "Matched medium risk keyword in symptoms." },
-        { factor_name: "Sudden Onset", contribution: 5, reason: "Injury happened recently." }
-      ]
-    }
-  }
-];
-
 export default function DashboardPage() {
-  const [cases, setCases] = useState<PatientCase[]>(MOCK_CASES);
+  const [cases, setCases] = useState<PatientCase[]>([]);
   const [selectedCase, setSelectedCase] = useState<PatientCase | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  const fetchCases = async () => {
+    const { data, error } = await supabase
+      .from('cases')
+      .select(`
+        *,
+        patients (
+          full_name,
+          age
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error("Error fetching cases:", error);
+      return;
+    }
+
+    if (data) {
+      const formattedCases: PatientCase[] = data.map((c: any) => {
+        // Calculate wait time roughly
+        const createdDate = new Date(c.created_at);
+        const diffMins = Math.floor((new Date().getTime() - createdDate.getTime()) / 60000);
+        const waitTime = diffMins < 1 ? "Just now" : `${diffMins} mins`;
+
+        return {
+          id: c.id,
+          case_reference: c.case_reference,
+          patientName: c.patients?.full_name || "Unknown",
+          age: c.patients?.age || 0,
+          priority: c.priority,
+          score: c.score,
+          symptoms: c.symptoms,
+          waitTime: waitTime,
+          status: c.status,
+          created_at: c.created_at,
+          triageResult: {
+            score: c.score,
+            priority: c.priority,
+            rule_version: "triage-v1.2",
+            factors: c.triage_factors || []
+          }
+        };
+      });
+      setCases(formattedCases);
+    }
+  };
+
+  useEffect(() => {
+    fetchCases();
+
+    // Subscribe to realtime changes on cases
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cases',
+        },
+        (payload) => {
+          console.log('Realtime change received!', payload);
+          fetchCases(); // Re-fetch all to get joins properly, or optimistically update
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const handleRowClick = (c: PatientCase) => {
     setSelectedCase(c);
     setIsDrawerOpen(true);
   };
 
-  const updateCaseStatus = (newStatus: CaseStatus) => {
+  const updateCaseStatus = async (newStatus: CaseStatus) => {
     if (selectedCase) {
+      // Optimistic update locally
       const updated = cases.map(c => c.id === selectedCase.id ? { ...c, status: newStatus } : c);
       setCases(updated);
       setSelectedCase({ ...selectedCase, status: newStatus });
+      
+      // Update in Supabase
+      await supabase
+        .from('cases')
+        .update({ status: newStatus })
+        .eq('id', selectedCase.id);
     }
   };
 
@@ -225,7 +226,7 @@ export default function DashboardPage() {
                   className={`cursor-pointer transition-colors hover:bg-slate-50 group ${c.priority === "CRITICAL" ? "bg-red-50/20" : ""}`}
                   onClick={() => handleRowClick(c)}
                 >
-                  <TableCell className="font-mono text-xs font-medium text-slate-600">{c.id}</TableCell>
+                  <TableCell className="font-mono text-xs font-medium text-slate-600">{c.case_reference}</TableCell>
                   <TableCell className="font-medium text-slate-900">{c.patientName}</TableCell>
                   <TableCell>
                     <PriorityBadge priority={c.priority} />
@@ -263,7 +264,7 @@ export default function DashboardPage() {
                   <div>
                     <SheetTitle className="text-2xl font-bold text-slate-900">{selectedCase.patientName}</SheetTitle>
                     <SheetDescription className="flex items-center gap-2 mt-1">
-                      <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{selectedCase.id}</span>
+                      <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{selectedCase.case_reference}</span>
                       <span>{selectedCase.age} years old</span>
                     </SheetDescription>
                   </div>
