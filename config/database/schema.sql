@@ -1,5 +1,4 @@
 -- MediSync Database Schema (Supabase PostgreSQL)
--- SCM Tracked Baseline: v1.0
 
 -- 1. Patients Table
 CREATE TABLE public.patients (

@@ -21,7 +21,6 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
             <Link href="#how-it-works" className="hover:text-primary transition-colors">How It Works</Link>
             <Link href="#features" className="hover:text-primary transition-colors">Features</Link>
-            <Link href="/scm" className="hover:text-primary transition-colors">SCM</Link>
           </nav>
           <div className="flex items-center gap-4">
             <Link href="/dashboard">
@@ -186,17 +185,10 @@ export default function LandingPage() {
                 <CardContent className="p-8 flex flex-col md:flex-row items-center gap-8">
                   <div className="flex-1">
                     <ShieldCheck className="h-8 w-8 text-primary mb-4" />
-                    <h3 className="text-xl font-bold text-slate-900">SCM Traceability</h3>
+                    <h3 className="text-xl font-bold text-slate-900">Secure & Confidential</h3>
                     <p className="mt-2 text-muted-foreground">
-                      Every configuration change, from AI scoring rules to application settings, is tracked through a Sapling-powered Configuration Control workflow.
+                      Patient data is securely transmitted and immediately available to the care team, ensuring a seamless and confidential triage process.
                     </p>
-                  </div>
-                  <div className="flex-1 w-full bg-slate-50 p-4 rounded-lg border font-mono text-xs md:text-sm text-slate-600 overflow-hidden">
-                    <div className="flex items-center gap-2 mb-2 text-slate-900">
-                      <div className="h-2 w-2 rounded-full bg-green-500"></div> baseline-04 approved
-                    </div>
-                    <div>&gt; config: update triage rules</div>
-                    <div>&gt; feat: add realtime queue</div>
                   </div>
                 </CardContent>
               </Card>
@@ -214,12 +206,10 @@ export default function LandingPage() {
           </div>
           <div className="text-sm text-muted-foreground text-center md:text-left">
             <p>Initial triage suggestion — clinician review required.</p>
-            <p className="mt-1">Built for the Software Configuration Management course.</p>
           </div>
           <div className="flex gap-4 text-sm font-medium">
             <Link href="/intake" className="text-primary hover:underline">Patient Demo</Link>
             <Link href="/dashboard" className="text-primary hover:underline">Doctor Demo</Link>
-            <Link href="/scm" className="text-primary hover:underline">SCM</Link>
           </div>
         </div>
       </footer>

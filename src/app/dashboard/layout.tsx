@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Activity, LayoutDashboard, Users, Settings, GitBranch, Bell, Search } from "lucide-react";
+import { Activity, LayoutDashboard, Users, Settings, Bell, Search } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 
@@ -27,10 +27,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href="#" className="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-md font-medium">
             <Users className="h-4 w-4" />
             Patients
-          </Link>
-          <Link href="/scm" className="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-md font-medium">
-            <GitBranch className="h-4 w-4" />
-            SCM & Config
           </Link>
           <Link href="#" className="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-md font-medium">
             <Settings className="h-4 w-4" />
