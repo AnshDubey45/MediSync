@@ -1,1 +1,1 @@
-Intitial commit
+feat: complete MediSync triage ecosystem with SQLite, Patients Directory, Settings, Voice, and Image uploads

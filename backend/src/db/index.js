@@ -1,32 +1,17 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+const { DatabaseSync } = require("node:sqlite");
+const path = require("path");
+const fs = require("fs");
 
-const dbDir = path.join(process.cwd(), "data");
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+const dataDir = path.join(__dirname, "..", "..", "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dbDir, "medisync.db");
+const dbPath = path.join(dataDir, "medisync.db");
+const db = new DatabaseSync(dbPath);
+db.exec("PRAGMA journal_mode = WAL;");
 
-// Singleton connection across hot-reloads
-declare global {
-  // eslint-disable-next-line no-var
-  var __sqlite_db: Database.Database | undefined;
-}
-
-function getDatabase(): Database.Database {
-  if (!global.__sqlite_db) {
-    const db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
-    initSchema(db);
-    global.__sqlite_db = db;
-  }
-  return global.__sqlite_db;
-}
-
-function initSchema(db: Database.Database) {
-  // Patients table
+function initSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS patients (
       id TEXT PRIMARY KEY,
@@ -37,7 +22,6 @@ function initSchema(db: Database.Database) {
     );
   `);
 
-  // Cases table
   db.exec(`
     CREATE TABLE IF NOT EXISTS cases (
       id TEXT PRIMARY KEY,
@@ -56,31 +40,29 @@ function initSchema(db: Database.Database) {
     );
   `);
 
-  // Ensure column exists for existing database
   try {
-    db.exec(`ALTER TABLE cases ADD COLUMN medical_image TEXT;`);
-  } catch {
+    db.exec("ALTER TABLE cases ADD COLUMN medical_image TEXT;");
+  } catch (e) {
     // Column already exists
   }
 
-  // Seed with realistic demo cases if table is completely empty
   const countStmt = db.prepare("SELECT COUNT(*) as count FROM cases");
-  const result = countStmt.get() as { count: number };
+  const result = countStmt.get();
 
-  if (result.count === 0) {
-    seedInitialData(db);
+  if (!result || result.count === 0) {
+    seedInitialData();
   }
 }
 
-function seedInitialData(db: Database.Database) {
+function seedInitialData() {
   const insertPatient = db.prepare(`
     INSERT INTO patients (id, full_name, age, conditions, created_at)
-    VALUES (@id, @full_name, @age, @conditions, @created_at)
+    VALUES (?, ?, ?, ?, ?)
   `);
 
   const insertCase = db.prepare(`
     INSERT INTO cases (id, patient_id, case_reference, symptoms, duration, score, priority, status, triage_factors, created_at, updated_at)
-    VALUES (@id, @patient_id, @case_reference, @symptoms, @duration, @score, @priority, @status, @triage_factors, @created_at, @updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const seedPatients = [
@@ -119,7 +101,7 @@ function seedInitialData(db: Database.Database) {
       priority: "HIGH",
       status: "Reviewing",
       triage_factors: JSON.stringify([
-        { factor_name: "High Symptom Indicator", contribution: 25, reason: "Matched 'fever' and 'headache' - neurological/infection flag." },
+        { factor_name: "High Symptom Indicator", contribution: 25, reason: "Matched 'fever' and 'headache' - neurological flag." },
         { factor_name: "Recent Onset", contribution: 40, reason: "Symptoms developed within last 24 hours." }
       ]),
       created_at: new Date(Date.now() - 8 * 60000).toISOString(),
@@ -176,12 +158,14 @@ function seedInitialData(db: Database.Database) {
     },
   ];
 
-  const seedTransaction = db.transaction(() => {
-    for (const p of seedPatients) insertPatient.run(p);
-    for (const c of seedCases) insertCase.run(c);
-  });
-
-  seedTransaction();
+  for (const p of seedPatients) {
+    insertPatient.run(p.id, p.full_name, p.age, p.conditions, p.created_at);
+  }
+  for (const c of seedCases) {
+    insertCase.run(c.id, c.patient_id, c.case_reference, c.symptoms, c.duration, c.score, c.priority, c.status, c.triage_factors, c.created_at, c.updated_at);
+  }
 }
 
-export const db = getDatabase();
+initSchema();
+
+module.exports = { db, reseed: seedInitialData };
