@@ -1,0 +1,12 @@
+2026/09/22 14:04:50 Ansh Dubey @(unknown) (2700) [command]> add .
+2026/09/22 14:05:02 Ansh Dubey @0000000000000000000000000000000000000000 (2700) [command_finish]> add . exited 0 after 11.73 seconds
+2026/09/22 14:05:27 Ansh Dubey @(unknown) (39072) [command]> commit -m "Initial baseline: MediSync Next.js app (dashboard, intake, triage components, Supabase config)"
+2026/09/22 14:05:42 Ansh Dubey @0000000000000000000000000000000000000000 (39072) [command_finish]> commit -m "Initial baseline: MediSync Next.js app (dashboard, intake, triage components, Supabase config)" exited -1 after 15.36 seconds
+2026/09/22 14:07:09 Ansh Dubey @(unknown) (32952) [command]> config --user ui.editor "code --wait"
+2026/09/22 14:07:09 Ansh Dubey @(unknown) (32952) [command_finish]> config --user ui.editor "code --wait" exited 0 after 0.29 seconds
+2026/09/22 14:07:26 Ansh Dubey @(unknown) (25108) [command]> commit -m "Initial baseline: MediSync Next.js app (dashboard, intake, triage components, Supabase config)"
+2026/09/22 14:07:43 Ansh Dubey @0000000000000000000000000000000000000000 (25108) [command_finish]> commit -m "Initial baseline: MediSync Next.js app (dashboard, intake, triage components, Supabase config)" exited -1 after 17.31 seconds
+2026/09/22 14:29:21 Ansh Dubey @(unknown) (24564) [command]> add .
+2026/09/22 14:29:25 Ansh Dubey @0000000000000000000000000000000000000000 (24564) [command_finish]> add . exited 0 after 4.10 seconds
+2026/09/22 14:29:40 Ansh Dubey @(unknown) (29472) [command]> commit -m "Intitial commit"
+2026/09/22 14:29:47 Ansh Dubey @0000000000000000000000000000000000000000 (29472) [command_finish]> commit -m "Intitial commit" exited -1 after 7.68 seconds
