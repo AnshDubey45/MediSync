@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { fullName, age, conditions, symptoms, duration, score, priority, factors, caseReference } = body;
+    const { fullName, age, conditions, symptoms, duration, score, priority, factors, caseReference, medicalImage } = body;
 
     if (!fullName || !symptoms) {
       return NextResponse.json(
@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
     const insertCase = db.prepare(`
       INSERT INTO cases (
         id, patient_id, case_reference, symptoms, duration,
-        score, priority, status, triage_factors, created_at, updated_at
+        score, priority, status, triage_factors, medical_image, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'Waiting', ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Waiting', ?, ?, datetime('now'), datetime('now'))
     `);
 
     const transaction = db.transaction(() => {
@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
         duration || "Not specified",
         score || 0,
         priority || "LOW",
-        JSON.stringify(factors || [])
+        JSON.stringify(factors || []),
+        medicalImage || null
       );
     });
 

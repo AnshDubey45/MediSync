@@ -49,11 +49,19 @@ function initSchema(db: Database.Database) {
       priority TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'Waiting',
       triage_factors TEXT NOT NULL,
+      medical_image TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     );
   `);
+
+  // Ensure column exists for existing database
+  try {
+    db.exec(`ALTER TABLE cases ADD COLUMN medical_image TEXT;`);
+  } catch {
+    // Column already exists
+  }
 
   // Seed with realistic demo cases if table is completely empty
   const countStmt = db.prepare("SELECT COUNT(*) as count FROM cases");

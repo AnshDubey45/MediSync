@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Clock, Filter, FileText, ChevronRight, Activity,
-  Loader2, Users, RefreshCw, Database, CheckCircle2
+  Loader2, Users, RefreshCw, Database, CheckCircle2, Image as ImageIcon
 } from "lucide-react";
 
 type CaseStatus = "Waiting" | "Reviewing" | "Resolved";
@@ -24,6 +24,7 @@ interface PatientCase {
   score: number;
   symptoms: string;
   duration?: string;
+  medicalImage?: string | null;
   waitTime: string;
   status: CaseStatus;
   triageResult: TriageResult;
@@ -321,6 +322,25 @@ export default function DashboardPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Attached Medical Image */}
+                {selectedCase.medicalImage && (
+                  <Card className="border shadow-xs bg-white">
+                    <CardContent className="p-5 space-y-3">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                        <ImageIcon className="h-3.5 w-3.5 text-primary" /> Attached Patient Image
+                      </h4>
+                      <div className="relative rounded-lg overflow-hidden border bg-slate-50 flex items-center justify-center p-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={selectedCase.medicalImage}
+                          alt="Patient medical upload"
+                          className="max-h-72 w-auto object-contain rounded-md"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Timeline */}
                 <div>
