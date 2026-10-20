@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MediSync 🏥
 
-## Getting Started
+> **Intelligent Clinical Decision-Support & Emergency Triage Platform**  
+> *Initial triage suggestion — clinician review required.*
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 📌 Overview
+
+**MediSync** is a clinical triage and patient intake management platform designed to streamline emergency room and outpatient prioritization. It provides patient self-service intake (with real-time speech-to-text and medical image attachment) and gives clinicians an explainable, priority-sorted triage queue.
+
+---
+
+## 🏗️ Architecture
+
+The repository is modularly structured into separate **frontend** and **backend** applications:
+
+```
+MediSync/
+├── frontend/                     # Next.js 15 Client Application
+│   ├── src/app/
+│   │   ├── intake/               # Patient Intake (Voice dictation + Image upload)
+│   │   ├── dashboard/            # Doctor Dashboard (Priority queue + explainability)
+│   │   │   ├── patients/         # Patient Directory & medical history charts
+│   │   │   └── settings/         # Threshold configurations, sound toggles, DB reseed
+│   │   └── layout.tsx            # Navigation layout with clinical alert popover
+│   ├── next.config.ts            # API rewrites proxying /api/* -> backend port 5000
+│   └── package.json
+│
+├── backend/                      # Express REST API & SQLite DB
+│   ├── src/
+│   │   ├── db/index.js           # Native node:sqlite with WAL mode & seed cases
+│   │   └── triage/engine.js      # Deterministic triage evaluation rule engine
+│   ├── data/medisync.db          # Local SQLite database file
+│   ├── server.js                 # Express server on port 5000 (15MB body limit)
+│   └── package.json
+│
+├── config/triage/                # AI scoring rules & weights
+├── package.json                  # Root orchestration script
+└── README.md
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🚀 Getting Started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Prerequisites
+- **Node.js**: v20 or higher (v24 recommended for native `node:sqlite` support)
+- **npm** or compatible package manager
 
-## Learn More
+### Installation
 
-To learn more about Next.js, take a look at the following resources:
+Clone the repository and install dependencies:
+```bash
+git clone https://github.com/AnshDubey45/MediSync.git
+cd MediSync
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Install root, backend, and frontend dependencies
+npm run install:all
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Running Locally
 
-## Deploy on Vercel
+Start both the backend API and frontend dev server with a single command:
+```bash
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Frontend Application**: [http://localhost:3000](http://localhost:3000)
+- **Backend API**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## ✨ Features
+
+- **Voice-Enabled Patient Intake**: Built-in speech-to-text using Web Speech API for hands-free symptom dictation.
+- **Medical Image Attachment**: Drag-and-drop support for symptom photos/scans with instant client-side preview.
+- **Deterministic Triage Engine**: Rules-based risk stratification (`Red: Immediate`, `Orange: Very Urgent`, `Yellow: Urgent`, `Green: Standard`).
+- **Clinician Dashboard**: Real-time queue polling, priority filtering, and symptom explainability drawers.
+- **Patient Directory**: Searchable history with patient medical charts.
+- **Clinical Alerts Popover**: Interactive header bell notification with unread count badges.
+- **Local SQLite Persistence**: Zero cloud database requirement; automatic WAL mode and seed cases.
+
+---
+
+## ⚠️ Medical Disclaimer
+
+MediSync is designed solely as a workflow optimization and initial triage suggestion tool. It is **not** a diagnostic device. All recommendations, risk tiers, and priority assignments must be reviewed and confirmed by a qualified, licensed clinician.

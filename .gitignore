@@ -45,3 +45,10 @@ next-env.d.ts
 # ide
 .idea/
 .sl/
+
+# AI agent instructions & specifications
+AGENTS.md
+CLAUDE.md
+**/AGENTS.md
+**/CLAUDE.md
+MediSync_Antigravity_Spec_v2/
