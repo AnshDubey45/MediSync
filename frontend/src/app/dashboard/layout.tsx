@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity, LayoutDashboard, Users, Settings, Bell, Search,
   CheckCircle2, AlertTriangle, AlertCircle, Clock, X, ChevronRight, Check,
-  GitBranch
+  GitBranch, ShieldCheck
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -114,10 +114,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       active: pathname.startsWith("/dashboard/patients"),
     },
     {
-      label: "Source Control",
+      label: "Admin",
       href: "/dashboard/scm",
-      icon: GitBranch,
-      active: pathname.startsWith("/dashboard/scm"),
+      icon: ShieldCheck,
+      active: pathname.startsWith("/dashboard/scm") || pathname.startsWith("/dashboard/admin"),
     },
     {
       label: "Settings",

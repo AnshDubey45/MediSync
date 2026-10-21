@@ -20,6 +20,64 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "healthy", database: "sqlite", timestamp: new Date().toISOString() });
 });
 
+// ── Admin Authentication ──
+const ADMIN_ACCOUNTS = [
+  {
+    name: "Neeraj Maurya",
+    email: "neeraj@medisync.health",
+    aliases: ["neeraj", "neerajmaurya1910@gmail.com", "neeraj@gmail.com"],
+    password: process.env.NEERAJ_PASSWORD || "neeraj123",
+    role: "Administrator (Lead)",
+  },
+  {
+    name: "Ansh Dubey",
+    email: "ansh@medisync.health",
+    aliases: ["ansh", "ansh.dubey4566@gmail.com", "ansh@gmail.com"],
+    password: process.env.ANSH_PASSWORD || "ansh123",
+    role: "Administrator (Core)",
+  },
+  {
+    name: "System Administrator",
+    email: "admin@medisync.health",
+    aliases: ["admin"],
+    password: process.env.ADMIN_PASSWORD || "admin123",
+    role: "System Administrator",
+  },
+];
+
+app.post("/api/admin/login", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ success: false, error: "Email/Username and password are required." });
+  }
+
+  const inputId = email.trim().toLowerCase();
+  const account = ADMIN_ACCOUNTS.find(
+    (acc) =>
+      acc.email.toLowerCase() === inputId ||
+      acc.aliases.some((alias) => alias.toLowerCase() === inputId)
+  );
+
+  if (account && account.password === password) {
+    return res.json({
+      success: true,
+      message: `Welcome, ${account.name}! Authentication successful.`,
+      admin: {
+        name: account.name,
+        email: account.email,
+        role: account.role,
+        authenticatedAt: new Date().toISOString(),
+      },
+      token: "medisync_admin_" + Date.now(),
+    });
+  }
+
+  return res.status(401).json({
+    success: false,
+    error: "Invalid email or password. Access denied.",
+  });
+});
+
 // ── GET /api/cases ──
 app.get("/api/cases", (req, res) => {
   try {
