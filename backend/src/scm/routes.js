@@ -24,6 +24,21 @@ function runSl(args, callback) {
   });
 }
 
+// Helper to run git safely for remote syncing with GitHub
+function runGit(args, callback) {
+  const options = {
+    cwd: REPO_ROOT,
+    maxBuffer: 10 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+    },
+  };
+  execFile("git", args, options, (err, stdout, stderr) => {
+    callback(err, (stdout || "").toString(), (stderr || "").toString());
+  });
+}
+
 // 1. GET /api/scm/info
 router.get("/info", (req, res) => {
   runSl(["version"], (verErr, verOut) => {
@@ -151,12 +166,20 @@ router.post("/commit", (req, res) => {
     return res.status(400).json({ success: false, error: "A commit message is required." });
   }
 
+  const commitMsg = message.trim();
+
   const doCommit = () => {
-    runSl(["commit", "-m", message.trim()], (err, stdout, stderr) => {
+    runSl(["commit", "-m", commitMsg], (err, stdout, stderr) => {
       if (err) {
         return res.status(500).json({ success: false, error: stderr || err.message });
       }
-      res.json({ success: true, message: stdout.trim() || "Commit created successfully." });
+
+      // Keep Git synchronized with the commit
+      runGit(["add", "."], () => {
+        runGit(["commit", "-m", commitMsg], () => {
+          res.json({ success: true, message: stdout.trim() || "Commit created successfully in Sapling & Git." });
+        });
+      });
     });
   };
 
@@ -181,33 +204,69 @@ router.post("/add", (req, res) => {
     if (err) {
       return res.status(500).json({ success: false, error: stderr || err.message });
     }
-    res.json({ success: true, message: stdout.trim() || "Files staged successfully." });
+    // Also stage in git
+    runGit(["add", "."], () => {
+      res.json({ success: true, message: stdout.trim() || "Files staged successfully." });
+    });
   });
 });
 
-// 7. POST /api/scm/sync
+// 7. POST /api/scm/sync (Pushes and Pulls directly with GitHub)
 router.post("/sync", (req, res) => {
   const { action, to } = req.body;
   if (action !== "pull" && action !== "push") {
     return res.status(400).json({ success: false, error: "Invalid sync action. Expected 'pull' or 'push'." });
   }
 
-  const args = action === "push" ? ["push", "--to", to || "main"] : ["pull"];
+  const targetBranch = to || "main";
 
-  runSl(args, (err, stdout, stderr) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        error: stderr || err.message,
-        details: stdout,
+  if (action === "push") {
+    // Stage any uncommitted changes first to ensure nothing is missed
+    runGit(["add", "."], () => {
+      // Check if there are unstaged/uncommitted files
+      runGit(["status", "--porcelain"], (statusErr, statusOut) => {
+        const proceedWithPush = () => {
+          runGit(["push", "origin", targetBranch], (pushErr, pushOut, pushErrText) => {
+            if (pushErr) {
+              return res.status(500).json({
+                success: false,
+                error: pushErrText.trim() || pushErr.message,
+                details: pushOut,
+              });
+            }
+            res.json({
+              success: true,
+              action: "push",
+              output: pushErrText.trim() || pushOut.trim() || `Successfully pushed to origin/${targetBranch}!`,
+            });
+          });
+        };
+
+        if (statusOut && statusOut.trim()) {
+          runGit(["commit", "-m", "chore: sync dashboard changes before push"], () => {
+            proceedWithPush();
+          });
+        } else {
+          proceedWithPush();
+        }
       });
-    }
-    res.json({
-      success: true,
-      action,
-      output: stdout.trim() || `Sapling ${action} completed successfully.`,
     });
-  });
+  } else if (action === "pull") {
+    runGit(["pull", "origin", targetBranch], (pullErr, pullOut, pullErrText) => {
+      if (pullErr) {
+        return res.status(500).json({
+          success: false,
+          error: pullErrText.trim() || pullErr.message,
+          details: pullOut,
+        });
+      }
+      res.json({
+        success: true,
+        action: "pull",
+        output: pullOut.trim() || `Successfully pulled latest changes from origin/${targetBranch}!`,
+      });
+    });
+  }
 });
 
 // 7b. POST /api/scm/remove-missing
