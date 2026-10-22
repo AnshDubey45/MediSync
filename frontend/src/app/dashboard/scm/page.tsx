@@ -23,7 +23,7 @@ interface ScmInfo {
 
 interface ScmFile {
   status: string;
-  type: "modified" | "added" | "untracked" | "missing" | "unknown";
+  type: "modified" | "added" | "untracked" | "missing" | "removed" | "unknown";
   file: string;
 }
 
@@ -32,6 +32,7 @@ interface ScmCounts {
   added: number;
   untracked: number;
   missing: number;
+  removed: number;
   total: number;
 }
 
@@ -56,13 +57,14 @@ export default function SourceControlPage() {
   const [activeTab, setActiveTab] = useState<"changes" | "history" | "isl" | "console">("changes");
   const [info, setInfo] = useState<ScmInfo | null>(null);
   const [files, setFiles] = useState<ScmFile[]>([]);
-  const [counts, setCounts] = useState<ScmCounts>({ modified: 0, added: 0, untracked: 0, missing: 0, total: 0 });
+  const [counts, setCounts] = useState<ScmCounts>({ modified: 0, added: 0, untracked: 0, missing: 0, removed: 0, total: 0 });
   const [commits, setCommits] = useState<ScmCommit[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>("");
 
   const [isLoading, setIsLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isReverting, setIsReverting] = useState(false);
   const [isSyncing, setIsSyncing] = useState<"pull" | "push" | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [stageAllUntracked, setStageAllUntracked] = useState(true);
@@ -269,13 +271,35 @@ export default function SourceControlPage() {
         headers: { "Content-Type": "application/json" },
       });
       if (data.success) {
-        showBanner("success", "Marked missing files as deleted in Sapling repository.");
+        showBanner("success", data.message || "Missing files marked as removed in Sapling. Click 'Commit Changes' to record deletion.");
         fetchScmData();
       } else {
         showBanner("error", data.error || "Failed to remove missing files.");
       }
     } catch (err: any) {
       showBanner("error", err.message);
+    }
+  };
+
+  // Handle Revert file (sl revert)
+  const handleRevert = async (filePath?: string) => {
+    setIsReverting(true);
+    try {
+      const data = await safeFetchJson("/api/scm/revert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: filePath }),
+      });
+      if (data.success) {
+        showBanner("success", data.message || `Reverted ${filePath || "all changes"} successfully.`);
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Failed to revert.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsReverting(false);
     }
   };
 
@@ -930,6 +954,7 @@ export default function SourceControlPage() {
                       { id: "all", label: `All (${counts.total})` },
                       { id: "modified", label: `Modified (${counts.modified})` },
                       { id: "missing", label: `Missing (${counts.missing})` },
+                      { id: "removed", label: `Removed (${counts.removed || 0})` },
                       { id: "added", label: `Added (${counts.added})` },
                       { id: "untracked", label: `Untracked (${counts.untracked})` },
                     ].map((tab) => (
@@ -979,9 +1004,12 @@ export default function SourceControlPage() {
                       } else if (fileItem.status === "?") {
                         badgeColor = "bg-blue-100 text-blue-800 border-blue-300";
                         label = "UNTRACKED";
-                      } else if (fileItem.status === "!" || fileItem.status === "R") {
+                      } else if (fileItem.status === "!") {
                         badgeColor = "bg-red-100 text-red-800 border-red-300";
                         label = "MISSING";
+                      } else if (fileItem.status === "R") {
+                        badgeColor = "bg-purple-100 text-purple-800 border-purple-300";
+                        label = "REMOVED";
                       }
 
                       return (
@@ -1000,15 +1028,29 @@ export default function SourceControlPage() {
                             </span>
                           </div>
 
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewDiff(fileItem.file)}
-                            className="h-7 px-2 text-[11px] text-slate-600 hover:text-slate-900 shrink-0"
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            Diff
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleViewDiff(fileItem.file)}
+                              className="h-7 px-2 text-[11px] text-slate-600 hover:text-slate-900 shrink-0"
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              Diff
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevert(fileItem.file)}
+                              disabled={isReverting}
+                              className="h-7 px-2 text-[11px] text-amber-700 hover:text-amber-900 hover:bg-amber-50 shrink-0"
+                              title={`Discard changes or restore file via 'sl revert ${fileItem.file}'`}
+                            >
+                              <RotateCcw className={`h-3 w-3 mr-1 ${isReverting ? "animate-spin" : ""}`} />
+                              Revert
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}

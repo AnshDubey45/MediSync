@@ -1,20 +1,41 @@
 const express = require("express");
 const { execFile } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 const router = express.Router();
 
 // Root repository path (MediSync workspace root directory)
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
+// Helper to ensure store journal exists on Windows to prevent Rust VFS transaction aborts
+function ensureStoreJournal() {
+  try {
+    const slDir = path.join(REPO_ROOT, ".git", "sl");
+    const storeDir = path.join(slDir, "store");
+    const slJournal = path.join(slDir, "journal");
+    const storeJournal = path.join(storeDir, "journal");
+
+    if (fs.existsSync(slDir) && !fs.existsSync(slJournal)) {
+      fs.writeFileSync(slJournal, "");
+    }
+    if (fs.existsSync(storeDir) && !fs.existsSync(storeJournal)) {
+      fs.writeFileSync(storeJournal, "");
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 // Helper to run sl safely
 function runSl(args, callback) {
+  ensureStoreJournal();
   const options = {
     cwd: REPO_ROOT,
     maxBuffer: 10 * 1024 * 1024, // 10MB
     env: {
       ...process.env,
-      PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+      PATH: `C:\\Users\\Ansh Dubey\\Sapling;/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
     },
   };
   const fullArgs = ["--config", "ui.paginate=False", ...args];
@@ -76,7 +97,7 @@ router.get("/status", (req, res) => {
 
     const lines = stdout.split("\n").filter(Boolean);
     const files = [];
-    const counts = { modified: 0, added: 0, untracked: 0, missing: 0, total: 0 };
+    const counts = { modified: 0, added: 0, untracked: 0, missing: 0, removed: 0, total: 0 };
 
     for (const line of lines) {
       if (line.length < 2) continue;
@@ -93,9 +114,12 @@ router.get("/status", (req, res) => {
       } else if (statusCode === "?") {
         statusType = "untracked";
         counts.untracked++;
-      } else if (statusCode === "!" || statusCode === "R") {
+      } else if (statusCode === "!") {
         statusType = "missing";
         counts.missing++;
+      } else if (statusCode === "R") {
+        statusType = "removed";
+        counts.removed++;
       }
       counts.total++;
 
@@ -275,7 +299,9 @@ router.post("/remove-missing", (req, res) => {
     if (err) {
       return res.status(500).json({ success: false, error: stderr || err.message });
     }
-    res.json({ success: true, message: stdout.trim() || "Missing files marked as removed." });
+    runGit(["add", "-u"], () => {
+      res.json({ success: true, message: stdout.trim() || "Missing files marked as removed in Sapling & Git." });
+    });
   });
 });
 
@@ -285,7 +311,31 @@ router.post("/addremove", (req, res) => {
     if (err) {
       return res.status(500).json({ success: false, error: stderr || err.message });
     }
-    res.json({ success: true, message: stdout.trim() || "Added untracked and removed missing files." });
+    runGit(["add", "-A"], () => {
+      res.json({ success: true, message: stdout.trim() || "Added untracked and removed missing files." });
+    });
+  });
+});
+
+// 7d. POST /api/scm/revert (Restore uncommitted changes or deleted files)
+router.post("/revert", (req, res) => {
+  const { file } = req.body;
+  const args = ["revert", "--no-backup"];
+  if (file && typeof file === "string" && file.trim()) {
+    const cleanPath = file.trim().replace(/^[./\\]+/, "");
+    args.push(cleanPath);
+  } else {
+    args.push("--all");
+  }
+
+  runSl(args, (err, stdout, stderr) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: stderr || err.message });
+    }
+    const gitTarget = file ? [file.trim().replace(/^[./\\]+/, "")] : ["."];
+    runGit(["checkout", "--", ...gitTarget], () => {
+      res.json({ success: true, message: stdout.trim() || `Reverted ${file || "all changes"} successfully.` });
+    });
   });
 });
 
