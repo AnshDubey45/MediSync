@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   GitBranch, GitCommit, RefreshCw, Upload, Download, Plus, CheckCircle2,
   AlertTriangle, FileCode2, Terminal, Eye, X, Copy, Check, ShieldCheck,
-  FolderGit2, Clock, Play, Trash2, Lock, Mail, KeyRound, LogOut, ShieldAlert, EyeOff
+  FolderGit2, Clock, Play, Trash2, Lock, Mail, KeyRound, LogOut, ShieldAlert, EyeOff,
+  RotateCcw, ArrowDown, ArrowUp, ExternalLink, Globe, Sparkles, Navigation, GitMerge, Layers
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,14 @@ interface ScmCommit {
   message: string;
 }
 
+interface SlWebSession {
+  url: string;
+  port: number;
+  token: string;
+  pid: number;
+  cwd: string;
+}
+
 async function safeFetchJson(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   const text = await res.text();
@@ -52,7 +61,7 @@ async function safeFetchJson(url: string, options?: RequestInit) {
 }
 
 export default function SourceControlPage() {
-  const [activeTab, setActiveTab] = useState<"changes" | "history" | "console">("changes");
+  const [activeTab, setActiveTab] = useState<"changes" | "history" | "console" | "isl">("changes");
   const [info, setInfo] = useState<ScmInfo | null>(null);
   const [files, setFiles] = useState<ScmFile[]>([]);
   const [counts, setCounts] = useState<ScmCounts>({ modified: 0, added: 0, untracked: 0, missing: 0, total: 0 });
@@ -79,6 +88,27 @@ export default function SourceControlPage() {
   const [consoleOutput, setConsoleOutput] = useState<string>("");
   const [isExecutingCmd, setIsExecutingCmd] = useState(false);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+
+  // Sapling Unique Feature: Undo Time Machine
+  const [isUndoModalOpen, setIsUndoModalOpen] = useState(false);
+  const [undoPreviewText, setUndoPreviewText] = useState("");
+  const [isLoadingUndoPreview, setIsLoadingUndoPreview] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
+
+  // Sapling Unique Feature: Amend
+  const [isAmendMode, setIsAmendMode] = useState(false);
+  const [isAmending, setIsAmending] = useState(false);
+
+  // Sapling Unique Feature: Stack Navigation (prev/next/goto) & Visual Tree
+  const [isNavigating, setIsNavigating] = useState<string | null>(null);
+  const [showAsciiTree, setShowAsciiTree] = useState(false);
+  const [asciiTree, setAsciiTree] = useState<string>("");
+
+  // Sapling Unique Feature: Meta Interactive Smartlog GUI (sl web)
+  const [islRunning, setIslRunning] = useState(false);
+  const [islSession, setIslSession] = useState<SlWebSession | null>(null);
+  const [isLoadingIsl, setIsLoadingIsl] = useState(false);
+  const [islPort] = useState(3011);
 
   // Admin Auth State
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
@@ -128,10 +158,18 @@ export default function SourceControlPage() {
         setCounts(statusJson.data.counts || { modified: 0, added: 0, untracked: 0, missing: 0, total: 0 });
       }
 
-      // 3. Fetch log
-      const logJson = await safeFetchJson("/api/scm/log?limit=20");
-      if (logJson.success) {
-        setCommits(logJson.data.commits || []);
+      // 3. Fetch smartlog & commit stack
+      const smartlogJson = await safeFetchJson("/api/scm/smartlog");
+      if (smartlogJson.success) {
+        setAsciiTree(smartlogJson.data.tree || "");
+        if (smartlogJson.data.commits && smartlogJson.data.commits.length > 0) {
+          setCommits(smartlogJson.data.commits);
+        }
+      } else {
+        const logJson = await safeFetchJson("/api/scm/log?limit=20");
+        if (logJson.success) {
+          setCommits(logJson.data.commits || []);
+        }
       }
     } catch (err: any) {
       showBanner("error", "Failed to connect to Sapling SCM backend: " + err.message);
@@ -140,11 +178,28 @@ export default function SourceControlPage() {
     }
   }, []);
 
+  // Check ISL Server Status
+  const checkIslStatus = useCallback(async () => {
+    try {
+      const data = await safeFetchJson("/api/scm/web/status");
+      if (data.success && data.running && data.session) {
+        setIslRunning(true);
+        setIslSession(data.session);
+      } else {
+        setIslRunning(false);
+        setIslSession(null);
+      }
+    } catch {
+      setIslRunning(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (isAdminLoggedIn) {
       fetchScmData();
+      checkIslStatus();
     }
-  }, [isAdminLoggedIn, fetchScmData]);
+  }, [isAdminLoggedIn, fetchScmData, checkIslStatus]);
 
   // Handle Admin Login
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -190,9 +245,37 @@ export default function SourceControlPage() {
     showBanner("info", "Logged out of Administrator Portal.");
   };
 
-  // Handle Commit
-  const handleCommit = async (e: React.FormEvent) => {
+  // Handle Commit or Amend
+  const handleCommitOrAmend = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isAmendMode) {
+      setIsAmending(true);
+      try {
+        const data = await safeFetchJson("/api/scm/amend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: commitMessage.trim() || undefined,
+            addAll: stageAllUntracked,
+          }),
+        });
+        if (data.success) {
+          showBanner("success", data.message || "Amended changes into current commit.");
+          setCommitMessage("");
+          setIsAmendMode(false);
+          fetchScmData();
+        } else {
+          showBanner("error", data.error || "Amend failed.");
+        }
+      } catch (err: any) {
+        showBanner("error", "Error during amend: " + err.message);
+      } finally {
+        setIsAmending(false);
+      }
+      return;
+    }
+
     if (!commitMessage.trim()) return;
 
     setIsCommitting(true);
@@ -216,6 +299,115 @@ export default function SourceControlPage() {
       showBanner("error", "Error during commit: " + err.message);
     } finally {
       setIsCommitting(false);
+    }
+  };
+
+  // Open Undo Modal & Fetch Preview
+  const handleOpenUndoModal = async () => {
+    setIsUndoModalOpen(true);
+    setIsLoadingUndoPreview(true);
+    try {
+      const data = await safeFetchJson("/api/scm/undo/preview");
+      if (data.success) {
+        setUndoPreviewText(data.data.preview || "No previous action to undo.");
+      } else {
+        setUndoPreviewText("Error loading preview: " + data.error);
+      }
+    } catch (err: any) {
+      setUndoPreviewText("Failed to contact undo engine: " + err.message);
+    } finally {
+      setIsLoadingUndoPreview(false);
+    }
+  };
+
+  // Execute Undo
+  const handleExecuteUndo = async (keepChanges: boolean) => {
+    setIsUndoing(true);
+    try {
+      const data = await safeFetchJson("/api/scm/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keep: keepChanges }),
+      });
+      if (data.success) {
+        showBanner("success", data.message || "Sapling undo completed successfully!");
+        setIsUndoModalOpen(false);
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Undo failed.");
+      }
+    } catch (err: any) {
+      showBanner("error", "Error executing undo: " + err.message);
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
+  // Handle Stack Navigation (prev, next, goto)
+  const handleNavigateStack = async (action: "prev" | "next" | "goto", target?: string) => {
+    setIsNavigating(target || action);
+    try {
+      const data = await safeFetchJson("/api/scm/nav", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, target }),
+      });
+      if (data.success) {
+        showBanner("success", data.message || `Switched to ${action}`);
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || `Navigation ${action} failed.`);
+      }
+    } catch (err: any) {
+      showBanner("error", "Navigation error: " + err.message);
+    } finally {
+      setIsNavigating(null);
+    }
+  };
+
+  // Start ISL Server
+  const handleStartIsl = async () => {
+    setIsLoadingIsl(true);
+    try {
+      const data = await safeFetchJson("/api/scm/web/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ port: islPort }),
+      });
+      if (data.success && data.session) {
+        setIslRunning(true);
+        setIslSession(data.session);
+        showBanner("success", `Interactive Smartlog Web GUI started on port ${data.session.port}!`);
+      } else {
+        showBanner("error", data.error || "Failed to launch ISL Web GUI.");
+      }
+    } catch (err: any) {
+      showBanner("error", "Error starting ISL: " + err.message);
+    } finally {
+      setIsLoadingIsl(false);
+    }
+  };
+
+  // Stop ISL Server
+  const handleStopIsl = async () => {
+    setIsLoadingIsl(true);
+    try {
+      const data = await safeFetchJson("/api/scm/web/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ port: islSession?.port || islPort }),
+      });
+      if (data.success) {
+        setIslRunning(false);
+        setIslSession(null);
+        showBanner("info", "Interactive Smartlog Web server stopped.");
+      } else {
+        showBanner("error", data.error || "Failed to stop ISL.");
+      }
+    } catch (err: any) {
+      showBanner("error", "Error stopping ISL: " + err.message);
+    } finally {
+      setIsLoadingIsl(false);
     }
   };
 
@@ -558,7 +750,18 @@ export default function SourceControlPage() {
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenUndoModal}
+            className="text-xs border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 hover:text-amber-900 font-medium"
+            title="Undo last local command (sl undo)"
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5 text-amber-700" />
+            Undo Action (<code className="font-mono text-[10px]">sl undo</code>)
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -663,10 +866,10 @@ export default function SourceControlPage() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b">
+      <div className="flex items-center gap-2 border-b overflow-x-auto">
         <button
           onClick={() => setActiveTab("changes")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "changes"
               ? "border-primary text-primary"
               : "border-transparent text-slate-500 hover:text-slate-800"
@@ -683,20 +886,38 @@ export default function SourceControlPage() {
 
         <button
           onClick={() => setActiveTab("history")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "history"
               ? "border-primary text-primary"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
           <Clock className="h-4 w-4" />
-          Smartlog / Commits
+          Smartlog / Stack
           <span className="text-xs text-slate-400">({commits.length})</span>
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab("isl");
+            checkIslStatus();
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+            activeTab === "isl"
+              ? "border-primary text-primary"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Sparkles className="h-4 w-4 text-purple-600" />
+          Interactive GUI (<code className="font-mono text-xs">sl web</code>)
+          {islRunning && (
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="ISL Server Active" />
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab("console")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "console"
               ? "border-primary text-primary"
               : "border-transparent text-slate-500 hover:text-slate-800"
@@ -861,56 +1082,101 @@ export default function SourceControlPage() {
               <CardHeader className="pb-3 border-b">
                 <CardTitle className="text-base flex items-center gap-2">
                   <GitCommit className="h-4 w-4 text-primary" />
-                  Commit Changes
+                  Commit or Amend
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Record your changes to the Sapling repository
+                  Record new changes or amend previous commit in Sapling
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="pt-4 space-y-4">
-                <form onSubmit={handleCommit} className="space-y-3">
+                <form onSubmit={handleCommitOrAmend} className="space-y-3">
                   <div>
-                    <label className="text-xs font-semibold text-slate-700 block mb-1">
-                      Commit Message
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Commit Message
+                      </label>
+                      {isAmendMode && (
+                        <span className="text-[10px] text-purple-600 font-medium">
+                          Optional for Amend
+                        </span>
+                      )}
+                    </div>
                     <textarea
                       rows={4}
                       value={commitMessage}
                       onChange={(e) => setCommitMessage(e.target.value)}
-                      placeholder="e.g. feat(triage): improve patient intake prioritization engine"
+                      placeholder={
+                        isAmendMode
+                          ? "Leave blank to keep current commit message, or type a new message..."
+                          : "e.g. feat(triage): improve patient intake prioritization engine"
+                      }
                       className="w-full text-xs font-sans p-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none"
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="stageAll"
-                      checked={stageAllUntracked}
-                      onChange={(e) => setStageAllUntracked(e.target.checked)}
-                      className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
-                    />
-                    <label htmlFor="stageAll" className="text-xs text-slate-600 cursor-pointer">
-                      Auto-stage untracked files (`sl add`)
-                    </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="stageAll"
+                        checked={stageAllUntracked}
+                        onChange={(e) => setStageAllUntracked(e.target.checked)}
+                        className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
+                      />
+                      <label htmlFor="stageAll" className="text-xs text-slate-600 cursor-pointer">
+                        Auto-stage untracked files (<code className="font-mono text-[10px]">sl add</code>)
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2 p-2 bg-purple-50/80 border border-purple-200/70 rounded-lg">
+                      <input
+                        type="checkbox"
+                        id="amendMode"
+                        checked={isAmendMode}
+                        onChange={(e) => setIsAmendMode(e.target.checked)}
+                        className="rounded border-purple-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                      />
+                      <label htmlFor="amendMode" className="text-xs text-purple-900 cursor-pointer font-medium leading-tight">
+                        Amend into previous commit (<code className="font-mono text-[10px] font-bold">sl amend</code>)
+                      </label>
+                    </div>
                   </div>
 
                   <Button
                     type="submit"
-                    disabled={!commitMessage.trim() || isCommitting || counts.total === 0}
-                    className="w-full text-xs font-semibold"
+                    disabled={
+                      (!isAmendMode && !commitMessage.trim()) ||
+                      isCommitting ||
+                      isAmending ||
+                      (counts.total === 0 && !isAmendMode)
+                    }
+                    className={`w-full text-xs font-semibold ${
+                      isAmendMode
+                        ? "bg-purple-600 hover:bg-purple-700 text-white"
+                        : ""
+                    }`}
                   >
-                    <GitCommit className={`h-3.5 w-3.5 mr-1.5 ${isCommitting ? "animate-spin" : ""}`} />
-                    {isCommitting ? "Creating Commit..." : "Commit Changes"}
+                    {isAmendMode ? (
+                      <>
+                        <GitMerge className={`h-3.5 w-3.5 mr-1.5 ${isAmending ? "animate-spin" : ""}`} />
+                        {isAmending ? "Amending Previous Commit..." : "Amend Previous Commit (sl amend)"}
+                      </>
+                    ) : (
+                      <>
+                        <GitCommit className={`h-3.5 w-3.5 mr-1.5 ${isCommitting ? "animate-spin" : ""}`} />
+                        {isCommitting ? "Creating Commit..." : "Commit Changes"}
+                      </>
+                    )}
                   </Button>
                 </form>
 
                 <div className="p-3 bg-slate-50 rounded-lg border text-[11px] text-slate-600 space-y-1 font-mono">
-                  <p className="font-semibold text-slate-800">Quick Tips:</p>
-                  <p>• Sapling tracks changes automatically.</p>
-                  <p>• Use pull/push to synchronize with your remote.</p>
-                  <p>• Commits are immutable & stackable.</p>
+                  <p className="font-semibold text-slate-800">Sapling Superpowers:</p>
+                  <p>• <span className="font-bold text-amber-700">sl undo</span>: Undo any mistake in 1 click.</p>
+                  <p>• <span className="font-bold text-purple-700">sl amend</span>: Meld changes into HEAD.</p>
+                  <p>• <span className="font-bold text-primary">sl prev/next</span>: Fast stack navigation.</p>
+                  <p>• <span className="font-bold text-indigo-700">sl web</span>: Meta interactive Smartlog GUI.</p>
                 </div>
               </CardContent>
             </Card>
@@ -922,21 +1188,80 @@ export default function SourceControlPage() {
       {activeTab === "history" && (
         <Card className="border shadow-xs bg-white">
           <CardHeader className="border-b pb-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Clock className="h-4 w-4 text-primary" />
-                  Sapling Commit History (Smartlog)
+                  Sapling Commit History & Stack (Smartlog)
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Recent commits recorded in this repository
+                  Stack-aware commit topology with single-step parent/child navigation and checkout
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={fetchScmData} className="text-xs">
                 <RefreshCw className="h-3 w-3 mr-1" />
-                Refresh History
+                Refresh Stack
               </Button>
             </div>
+
+            {/* Stack Navigation Action Bar */}
+            <div className="mt-3 p-3 bg-slate-50 border rounded-lg flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Layers className="h-4 w-4 text-primary" />
+                  Stack Navigation:
+                </span>
+                <span className="font-mono text-[11px] bg-primary/10 text-primary px-2.5 py-0.5 rounded font-bold">
+                  Working Copy @ {info?.commit || "000000"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleNavigateStack("prev")}
+                  disabled={isNavigating !== null}
+                  className="h-7 text-xs bg-white hover:bg-slate-100 text-slate-700 border-slate-300"
+                  title="Step down to parent commit (sl prev)"
+                >
+                  <ArrowDown className={`h-3 w-3 mr-1 ${isNavigating === "prev" ? "animate-bounce" : ""}`} />
+                  Step Down (<code className="font-mono text-[10px]">sl prev</code>)
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleNavigateStack("next")}
+                  disabled={isNavigating !== null}
+                  className="h-7 text-xs bg-white hover:bg-slate-100 text-slate-700 border-slate-300"
+                  title="Step up to child commit (sl next)"
+                >
+                  <ArrowUp className={`h-3 w-3 mr-1 ${isNavigating === "next" ? "animate-bounce" : ""}`} />
+                  Step Up (<code className="font-mono text-[10px]">sl next</code>)
+                </Button>
+
+                <Button
+                  variant={showAsciiTree ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowAsciiTree(!showAsciiTree)}
+                  className="h-7 text-xs"
+                >
+                  <Terminal className="h-3 w-3 mr-1" />
+                  {showAsciiTree ? "Hide ASCII Tree" : "Show ASCII Graph"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Collapsible ASCII Smartlog Diagram */}
+            {showAsciiTree && (
+              <div className="mt-3 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-lg overflow-x-auto border border-slate-800 shadow-inner">
+                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-2">
+                  Sapling Visual Smartlog ASCII Diagram:
+                </p>
+                <pre className="whitespace-pre leading-relaxed">{asciiTree || "(Fetching smartlog graph...)"}</pre>
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="p-0">
@@ -950,44 +1275,213 @@ export default function SourceControlPage() {
               </div>
             ) : (
               <div className="divide-y">
-                {commits.map((c, i) => (
-                  <div key={i} className="p-4 flex items-start justify-between gap-4 hover:bg-slate-50 transition-colors">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                          @{c.hash}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-800">
-                          {c.message}
-                        </span>
+                {commits.map((c, i) => {
+                  const isCurrent =
+                    Boolean(info?.commit) &&
+                    (c.hash.toLowerCase().startsWith(info!.commit.toLowerCase()) ||
+                      info!.commit.toLowerCase().startsWith(c.hash.toLowerCase()));
+
+                  return (
+                    <div
+                      key={i}
+                      className={`p-4 flex items-start justify-between gap-4 transition-colors ${
+                        isCurrent ? "bg-primary/5 border-l-4 border-l-primary" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${
+                              isCurrent
+                                ? "bg-primary text-white"
+                                : "bg-slate-100 text-slate-800"
+                            }`}
+                          >
+                            {isCurrent ? "@" : "o"} {c.hash}
+                          </span>
+                          {isCurrent && (
+                            <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-semibold">
+                              Current Head (Working Copy)
+                            </Badge>
+                          )}
+                          <span className="text-xs font-semibold text-slate-800">
+                            {c.message}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500 font-sans">
+                          <span>Author: {c.author}</span>
+                          <span>•</span>
+                          <span>{c.age}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 font-sans">
-                        <span>Author: {c.author}</span>
-                        <span>•</span>
-                        <span>{c.age}</span>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!isCurrent && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleNavigateStack("goto", c.hash)}
+                            disabled={isNavigating !== null}
+                            className="h-8 text-xs text-primary border-primary/20 hover:bg-primary/5"
+                            title={`Jump working copy to this revision (sl goto ${c.hash})`}
+                          >
+                            <Navigation className={`h-3 w-3 mr-1 ${isNavigating === c.hash ? "animate-spin" : ""}`} />
+                            {isNavigating === c.hash ? "Going..." : "Checkout"}
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToClipboard(c.hash)}
+                          className="h-8 text-xs text-slate-500"
+                        >
+                          {copiedHash === c.hash ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-emerald-600 mr-1" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5 mr-1" />
+                              Copy ID
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* TAB 4: META INTERACTIVE SMARTLOG GUI (sl web) */}
+      {activeTab === "isl" && (
+        <Card className="border shadow-xs bg-white">
+          <CardHeader className="border-b pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-purple-600" />
+                    Meta Interactive Smartlog (ISL) Web GUI
+                  </CardTitle>
+                  <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-[10px]">
+                    Built-in Meta GUI
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  Meta&apos;s interactive web-based visual commit rebaser, smartlog graph, and hunk staging UI
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {islRunning && islSession?.url && (
+                  <>
+                    <a
+                      href={islSession.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 transition-colors"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Open In New Window
+                    </a>
 
                     <Button
-                      variant="ghost"
+                      variant="destructive"
                       size="sm"
-                      onClick={() => copyToClipboard(c.hash)}
-                      className="h-8 text-xs text-slate-500"
+                      onClick={handleStopIsl}
+                      disabled={isLoadingIsl}
+                      className="text-xs"
                     >
-                      {copiedHash === c.hash ? (
-                        <>
-                          <Check className="h-3.5 w-3.5 text-emerald-600 mr-1" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3.5 w-3.5 mr-1" />
-                          Copy ID
-                        </>
-                      )}
+                      Stop Server
                     </Button>
+                  </>
+                )}
+
+                {!islRunning && (
+                  <Button
+                    size="sm"
+                    onClick={handleStartIsl}
+                    disabled={isLoadingIsl}
+                    className="text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    <Play className={`h-3.5 w-3.5 mr-1.5 ${isLoadingIsl ? "animate-spin" : ""}`} />
+                    {isLoadingIsl ? "Launching ISL Server..." : "Launch sl web GUI"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-4">
+            {islRunning && islSession?.url ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-semibold">Interactive Smartlog Server Active</span>
+                    <span className="font-mono text-[11px] text-emerald-700">
+                      (Port {islSession.port} • PID {islSession.pid})
+                    </span>
                   </div>
-                ))}
+                  <span className="text-[11px] text-emerald-700 hidden sm:inline">
+                    Embedded securely below. You can drag, rebase, and inspect commits live.
+                  </span>
+                </div>
+
+                <div className="w-full border rounded-xl overflow-hidden shadow-sm bg-slate-900 min-h-[650px] relative">
+                  <iframe
+                    src={islSession.url}
+                    title="Sapling Interactive Smartlog"
+                    className="w-full h-[750px] border-0 bg-white"
+                    allow="clipboard-read; clipboard-write"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="py-16 px-4 text-center max-w-xl mx-auto space-y-4">
+                <div className="h-16 w-16 mx-auto bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center border border-purple-100 shadow-xs">
+                  <Globe className="h-8 w-8" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    Interactive Smartlog GUI (<code className="font-mono text-purple-700">sl web</code>)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    Sapling includes an official browser GUI created by Meta called <strong>Interactive Smartlog (ISL)</strong>.
+                    It allows you to visually reorder commits via drag-and-drop, stage individual lines/hunks,
+                    amend, absorb, and view code reviews in real time without touching the command line.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left py-2">
+                  <div className="p-3 bg-slate-50 rounded-lg border text-xs">
+                    <p className="font-bold text-slate-800">🎯 Drag-and-Drop</p>
+                    <p className="text-slate-500 text-[11px] mt-1">Reorder and rebase commits in your stack visually.</p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border text-xs">
+                    <p className="font-bold text-slate-800">✂️ Hunk Staging</p>
+                    <p className="text-slate-500 text-[11px] mt-1">Select and stage individual diff blocks with ease.</p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border text-xs">
+                    <p className="font-bold text-slate-800">⚡ Live Stack Sync</p>
+                    <p className="text-slate-500 text-[11px] mt-1">Seamlessly synchronized with MediSync repository.</p>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleStartIsl}
+                  disabled={isLoadingIsl}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs px-6 py-2 h-9"
+                >
+                  <Play className={`h-4 w-4 mr-2 ${isLoadingIsl ? "animate-spin" : ""}`} />
+                  {isLoadingIsl ? "Starting ISL Server..." : "Start & Embed Interactive Smartlog"}
+                </Button>
               </div>
             )}
           </CardContent>
@@ -1014,11 +1508,12 @@ export default function SourceControlPage() {
             <div className="flex items-center gap-2 pt-3 flex-wrap">
               <span className="text-xs text-slate-500 font-medium">Quick run:</span>
               {[
-                "status",
-                "addremove",
-                "remove --mark",
-                "log -l 5",
+                "undo --preview",
+                "smartlog",
                 "whereami",
+                "status",
+                "prev",
+                "next",
                 "book",
                 "diff --stat",
                 "version",
@@ -1081,6 +1576,91 @@ export default function SourceControlPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* UNDO TIME MACHINE MODAL */}
+      {isUndoModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden border">
+            <div className="px-6 py-4 border-b flex items-center justify-between bg-amber-50/70">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="h-5 w-5 text-amber-700" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Sapling Undo Time Machine (<code className="font-mono text-xs">sl undo</code>)
+                  </h3>
+                  <p className="text-xs text-slate-500">Reverse your last local command safely</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsUndoModalOpen(false)}
+                className="h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="text-xs text-slate-600 leading-relaxed">
+                Sapling provides a true <strong>time machine</strong>. Unlike git, any local command (commit, amend, goto, rebase) can be completely undone in one step without losing work.
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs text-amber-300 max-h-48 overflow-y-auto">
+                {isLoadingUndoPreview ? (
+                  <div className="text-slate-400 py-4 text-center">Calculating undo target preview...</div>
+                ) : (
+                  <pre className="whitespace-pre-wrap">{undoPreviewText || "No preview available."}</pre>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <div className="p-3 rounded-lg border bg-slate-50 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">Option A: Undo & Keep Changes</p>
+                    <p className="text-[11px] text-slate-500">
+                      Uncommits the commit but keeps all modified files in your working directory (<code className="font-mono">sl undo --keep</code>).
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUndoing || isLoadingUndoPreview}
+                    onClick={() => handleExecuteUndo(true)}
+                    className="text-xs shrink-0 font-semibold"
+                  >
+                    {isUndoing ? "Undoing..." : "Undo (Keep Files)"}
+                  </Button>
+                </div>
+
+                <div className="p-3 rounded-lg border bg-amber-50/40 border-amber-200/70 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-amber-900">Option B: Full Undo</p>
+                    <p className="text-[11px] text-amber-700">
+                      Completely reverts the working tree and stack to before the command (<code className="font-mono">sl undo</code>).
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={isUndoing || isLoadingUndoPreview}
+                    onClick={() => handleExecuteUndo(false)}
+                    className="text-xs shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                  >
+                    {isUndoing ? "Undoing..." : "Full Undo"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-t bg-slate-50 flex justify-end">
+              <Button size="sm" variant="ghost" onClick={() => setIsUndoModalOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* DIFF MODAL */}
