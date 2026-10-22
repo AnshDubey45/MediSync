@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   GitBranch, GitCommit, RefreshCw, Upload, Download, Plus, CheckCircle2,
   AlertTriangle, FileCode2, Terminal, Eye, X, Copy, Check, ShieldCheck,
-  FolderGit2, Clock, Play, Trash2, Lock, Mail, KeyRound, LogOut, ShieldAlert, EyeOff
+  FolderGit2, Clock, Play, Trash2, Lock, Mail, KeyRound, LogOut, ShieldAlert, EyeOff,
+  RotateCcw, RotateCw, ChevronUp, ChevronDown, Globe, ExternalLink, Navigation
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +53,7 @@ async function safeFetchJson(url: string, options?: RequestInit) {
 }
 
 export default function SourceControlPage() {
-  const [activeTab, setActiveTab] = useState<"changes" | "history" | "console">("changes");
+  const [activeTab, setActiveTab] = useState<"changes" | "history" | "isl" | "console">("changes");
   const [info, setInfo] = useState<ScmInfo | null>(null);
   const [files, setFiles] = useState<ScmFile[]>([]);
   const [counts, setCounts] = useState<ScmCounts>({ modified: 0, added: 0, untracked: 0, missing: 0, total: 0 });
@@ -80,6 +81,21 @@ export default function SourceControlPage() {
   const [isExecutingCmd, setIsExecutingCmd] = useState(false);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
 
+  // Feature 1: sl amend state
+  const [isAmend, setIsAmend] = useState(false);
+
+  // Feature 2: sl undo / redo state
+  const [isUndoing, setIsUndoing] = useState(false);
+  const [isRedoing, setIsRedoing] = useState(false);
+
+  // Feature 3: stack navigation state
+  const [isNavigating, setIsNavigating] = useState(false);
+
+  // Feature 4: sl web state
+  const [webStatus, setWebStatus] = useState<{ running: boolean; url: string | null; port: number }>({ running: false, url: null, port: 3011 });
+  const [isLoadingWeb, setIsLoadingWeb] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
+
   // Admin Auth State
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminUser, setAdminUser] = useState<{ name?: string; email: string; role: string } | null>(null);
@@ -92,6 +108,13 @@ export default function SourceControlPage() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Fetch sl web status on load
+  useEffect(() => {
+    fetch("/api/scm/web/status")
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setWebStatus({ running: d.running, url: d.url, port: d.port }); })
+      .catch(() => {});
+  }, []);
   // Check persistent admin session on mount
   useEffect(() => {
     setIsMounted(true);
@@ -297,6 +320,117 @@ export default function SourceControlPage() {
     }
   };
 
+  // Feature 1: sl amend handler
+  const handleAmend = async (msg: string) => {
+    setIsCommitting(true);
+    try {
+      const data = await safeFetchJson("/api/scm/amend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg }),
+      });
+      if (data.success) {
+        showBanner("success", data.message || "Amended into previous commit successfully.");
+        setCommitMessage("");
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Amend failed.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  // Feature 2a: sl undo
+  const handleUndo = async () => {
+    setIsUndoing(true);
+    try {
+      const data = await safeFetchJson("/api/scm/undo", { method: "POST" });
+      if (data.success) {
+        showBanner("success", data.message || "Last operation undone.");
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Undo failed.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
+  // Feature 2b: sl redo
+  const handleRedo = async () => {
+    setIsRedoing(true);
+    try {
+      const data = await safeFetchJson("/api/scm/redo", { method: "POST" });
+      if (data.success) {
+        showBanner("success", data.message || "Redo completed.");
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Redo failed.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsRedoing(false);
+    }
+  };
+
+  // Feature 3: stack navigation
+  const handleNavigate = async (action: "prev" | "next" | "goto", target?: string) => {
+    setIsNavigating(true);
+    try {
+      const data = await safeFetchJson("/api/scm/navigate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, target }),
+      });
+      if (data.success) {
+        showBanner("success", data.message || `Navigated: sl ${action}`);
+        fetchScmData();
+      } else {
+        showBanner("error", data.error || "Navigation failed.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsNavigating(false);
+    }
+  };
+
+  // Feature 4: sl web controls
+  const handleStartWeb = async () => {
+    setIsLoadingWeb(true);
+    try {
+      const data = await safeFetchJson("/api/scm/web/start", { method: "POST" });
+      if (data.success) {
+        setWebStatus({ running: data.running, url: data.url, port: data.port });
+        showBanner("info", "Sapling Web GUI started on port " + data.port);
+      } else {
+        showBanner("error", data.error || "Failed to start Sapling Web.");
+      }
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsLoadingWeb(false);
+    }
+  };
+
+  const handleStopWeb = async () => {
+    setIsLoadingWeb(true);
+    try {
+      await safeFetchJson("/api/scm/web/stop", { method: "POST" });
+      setWebStatus({ running: false, url: null, port: 3011 });
+      showBanner("info", "Sapling Web GUI stopped.");
+    } catch (err: any) {
+      showBanner("error", err.message);
+    } finally {
+      setIsLoadingWeb(false);
+    }
+  };
   // Execute Console Command
   const handleExecuteCommand = async (cmdToRun?: string) => {
     const cmd = (cmdToRun || consoleCommand).trim();
@@ -396,7 +530,7 @@ export default function SourceControlPage() {
                     <Input
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="••••••••"
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       className="pl-9 pr-9 h-10 text-xs font-mono"
@@ -558,7 +692,20 @@ export default function SourceControlPage() {
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Feature 2: sl undo — One-click time machine */}
+          <Button variant="outline" size="sm" onClick={handleUndo} disabled={isUndoing || isLoading}
+            title="Undo last local Sapling operation (sl undo)"
+            className="text-xs text-amber-700 border-amber-300 hover:bg-amber-50">
+            <RotateCcw className={`h-3.5 w-3.5 mr-1 ${isUndoing ? "animate-spin" : ""}`} />
+            {isUndoing ? "Undoing..." : "Undo (sl undo)"}
+          </Button>
+          {/* Feature 2b: sl redo */}
+          <Button variant="outline" size="sm" onClick={handleRedo} disabled={isRedoing || isLoading}
+            title="Redo last undone operation (sl redo)" className="text-xs">
+            <RotateCw className={`h-3.5 w-3.5 mr-1 ${isRedoing ? "animate-spin" : ""}`} />
+            {isRedoing ? "Redoing..." : "Redo (sl redo)"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -655,7 +802,7 @@ export default function SourceControlPage() {
                 </p>
               </div>
               <span className="h-8 w-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">
-                {counts.total === 0 ? "✓" : counts.total}
+                {counts.total === 0 ? "âœ“" : counts.total}
               </span>
             </div>
           </CardContent>
@@ -692,6 +839,22 @@ export default function SourceControlPage() {
           <Clock className="h-4 w-4" />
           Smartlog / Commits
           <span className="text-xs text-slate-400">({commits.length})</span>
+        </button>
+
+        {/* Feature 4: sl web tab */}
+        <button
+          onClick={() => setActiveTab("isl")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === "isl"
+              ? "border-primary text-primary"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Globe className="h-4 w-4 text-purple-600" />
+          Interactive GUI (`sl web`)
+          {webStatus.running && (
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          )}
         </button>
 
         <button
@@ -870,6 +1033,14 @@ export default function SourceControlPage() {
 
               <CardContent className="pt-4 space-y-4">
                 <form onSubmit={handleCommit} className="space-y-3">
+                  {/* Feature 1: sl amend toggle */}
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3 mb-2">
+                    <div>
+                      <p className="text-xs font-bold text-amber-900">Amend last commit (`sl amend`)</p>
+                      <p className="text-[10px] text-amber-700 mt-0.5">Fold changes into the previous local draft commit. Cannot amend already-pushed commits.</p>
+                    </div>
+                    <input type="checkbox" checked={isAmend} onChange={(e) => setIsAmend(e.target.checked)} className="h-4 w-4 rounded border-amber-300 shrink-0" />
+                  </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-700 block mb-1">
                       Commit Message
@@ -908,9 +1079,9 @@ export default function SourceControlPage() {
 
                 <div className="p-3 bg-slate-50 rounded-lg border text-[11px] text-slate-600 space-y-1 font-mono">
                   <p className="font-semibold text-slate-800">Quick Tips:</p>
-                  <p>• Sapling tracks changes automatically.</p>
-                  <p>• Use pull/push to synchronize with your remote.</p>
-                  <p>• Commits are immutable & stackable.</p>
+                  <p>â€¢ Sapling tracks changes automatically.</p>
+                  <p>â€¢ Use pull/push to synchronize with your remote.</p>
+                  <p>â€¢ Commits are immutable & stackable.</p>
                 </div>
               </CardContent>
             </Card>
@@ -936,6 +1107,41 @@ export default function SourceControlPage() {
                 <RefreshCw className="h-3 w-3 mr-1" />
                 Refresh History
               </Button>
+            </div>
+
+            {/* Feature 2: Stack Navigation Toolbar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t mt-3">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold text-slate-700 mr-1 flex items-center gap-1">
+                  <Navigation className="h-3.5 w-3.5 text-primary" />
+                  Stack Navigation:
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleNavigate("prev")}
+                  disabled={isNavigating || isLoading}
+                  className="h-7 text-xs bg-slate-50 hover:bg-slate-100"
+                  title="Move working copy to parent commit (sl prev)"
+                >
+                  <ChevronDown className="h-3 w-3 mr-1" />
+                  Step Back (`sl prev`)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleNavigate("next")}
+                  disabled={isNavigating || isLoading}
+                  className="h-7 text-xs bg-slate-50 hover:bg-slate-100"
+                  title="Move working copy to child commit in stack (sl next)"
+                >
+                  <ChevronUp className="h-3 w-3 mr-1" />
+                  Step Forward (`sl next`)
+                </Button>
+              </div>
+              <span className="text-[11px] text-slate-500 font-mono">
+                Current HEAD: <span className="text-primary font-bold">{info?.commit || "000000"}</span>
+              </span>
             </div>
           </CardHeader>
 
@@ -968,26 +1174,156 @@ export default function SourceControlPage() {
                       </div>
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyToClipboard(c.hash)}
-                      className="h-8 text-xs text-slate-500"
-                    >
-                      {copiedHash === c.hash ? (
-                        <>
-                          <Check className="h-3.5 w-3.5 text-emerald-600 mr-1" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3.5 w-3.5 mr-1" />
-                          Copy ID
-                        </>
+                    <div className="flex items-center gap-1.5">
+                      {info?.commit !== c.hash && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleNavigate("goto", c.hash)}
+                          disabled={isNavigating}
+                          className="h-8 text-xs text-slate-700 hover:bg-slate-100"
+                          title={`Check out this commit using 'sl goto ${c.hash}'`}
+                        >
+                          <Navigation className="h-3 w-3 mr-1 text-primary" />
+                          Goto (`sl goto`)
+                        </Button>
                       )}
-                    </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToClipboard(c.hash)}
+                        className="h-8 text-xs text-slate-500"
+                      >
+                        {copiedHash === c.hash ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-600 mr-1" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5 mr-1" />
+                            Copy ID
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* TAB: META SAPLING WEB (ISL) EMBEDDED GUI */}
+      {activeTab === "isl" && (
+        <Card className="border shadow-xs bg-white">
+          <CardHeader className="border-b pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-purple-600" />
+                  Meta Interactive Smartlog GUI (`sl web`)
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Sapling&apos;s native visual interface with interactive commit graph reordering and drag-and-drop stack rebasing
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {webStatus.running ? (
+                  <>
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 font-mono text-xs flex items-center gap-1.5 py-1">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Port {webStatus.port} Active
+                    </Badge>
+
+                    {webStatus.url && (
+                      <a
+                        href={webStatus.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center text-xs px-3 py-1.5 rounded-md bg-purple-600 hover:bg-purple-700 text-white font-medium transition-colors shadow-xs"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        Open in New Window
+                      </a>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIframeKey((k) => k + 1)}
+                      className="text-xs"
+                      title="Reload embedded view"
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Reload
+                    </Button>
+
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleStopWeb}
+                      disabled={isLoadingWeb}
+                      className="text-xs bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      Stop Server
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={handleStartWeb}
+                    disabled={isLoadingWeb}
+                    className="text-xs bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                  >
+                    <Globe className="h-3.5 w-3.5 mr-1.5" />
+                    {isLoadingWeb ? "Starting Server..." : "Launch Sapling Web GUI"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-4">
+            {webStatus.running && webStatus.url ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-500 font-mono bg-slate-50 px-3 py-2 rounded-lg border">
+                  <span>Embedded GUI: {webStatus.url}</span>
+                  <span className="text-emerald-700 font-semibold">● Live Session Connected</span>
+                </div>
+                <div className="w-full h-[650px] rounded-xl overflow-hidden border shadow-inner bg-slate-950">
+                  <iframe
+                    key={iframeKey}
+                    src={webStatus.url}
+                    title="Meta Sapling Interactive Web GUI"
+                    className="w-full h-full border-0"
+                    allow="clipboard-read; clipboard-write"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="py-20 text-center space-y-4">
+                <div className="h-16 w-16 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center mx-auto">
+                  <Globe className="h-8 w-8" />
+                </div>
+                <div className="max-w-md mx-auto space-y-1">
+                  <h3 className="text-base font-bold text-slate-900">
+                    Meta Sapling Interactive Web (ISL) is Offline
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sapling includes a full web-based visual interface (`sl web`) allowing you to rebase, drag-and-drop commits, and view stacked pull requests visually.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleStartWeb}
+                  disabled={isLoadingWeb}
+                  className="text-xs bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-xs"
+                >
+                  <Globe className={`h-3.5 w-3.5 mr-1.5 ${isLoadingWeb ? "animate-spin" : ""}`} />
+                  {isLoadingWeb ? "Starting Server on Port 3011..." : "Start Sapling Web (`sl web`)"}
+                </Button>
               </div>
             )}
           </CardContent>

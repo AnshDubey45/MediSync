@@ -289,6 +289,164 @@ router.post("/addremove", (req, res) => {
   });
 });
 
+// 8a. POST /api/scm/amend  — Update the last local (draft) commit
+router.post("/amend", (req, res) => {
+  const { message } = req.body;
+  const amendArgs = ["amend", "-A"];
+  if (message && typeof message === "string" && message.trim()) {
+    amendArgs.push("-m", message.trim());
+  }
+
+  runSl(amendArgs, (err, stdout, stderr) => {
+    if (err) {
+      const errText = stderr || err.message || "";
+      if (errText.includes("cannot amend public commits")) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Cannot amend: This commit is already pushed to GitHub (public phase). Sapling protects published history. Please uncheck 'Amend' and create a normal commit instead.",
+        });
+      }
+      return res.status(500).json({ success: false, error: errText });
+    }
+    // Mirror in Git
+    runGit(["add", "."], () => {
+      runGit(["commit", "--amend", "--no-edit"], () => {
+        res.json({ success: true, message: stdout.trim() || "Amended successfully into the previous commit." });
+      });
+    });
+  });
+});
+
+// 8b. POST /api/scm/undo  — One-click time machine (sl undo)
+router.post("/undo", (req, res) => {
+  runSl(["undo"], (err, stdout, stderr) => {
+    if (err) {
+      const errText = stderr || err.message || "";
+      if (errText.toLowerCase().includes("journal")) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Nothing to undo: No recent local operation found in the journal. (sl undo reverses committed Sapling transactions only.)",
+        });
+      }
+      if (errText.includes("uncommitted changes")) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot undo: You have uncommitted changes. Commit or revert them first.",
+        });
+      }
+      return res.status(500).json({ success: false, error: errText });
+    }
+    res.json({ success: true, message: stdout.trim() || "Last operation undone successfully." });
+  });
+});
+
+// 8c. POST /api/scm/redo  — Redo last undone operation (sl redo)
+router.post("/redo", (req, res) => {
+  runSl(["redo"], (err, stdout, stderr) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: stderr || err.message });
+    }
+    res.json({ success: true, message: stdout.trim() || "Redo completed successfully." });
+  });
+});
+
+// 8d. POST /api/scm/navigate  — Stack navigation: sl prev, sl next, sl goto
+router.post("/navigate", (req, res) => {
+  const { action, target } = req.body;
+  if (!["prev", "next", "goto"].includes(action)) {
+    return res.status(400).json({ success: false, error: "Action must be 'prev', 'next', or 'goto'." });
+  }
+
+  let args = [];
+  if (action === "prev") args = ["prev"];
+  else if (action === "next") args = ["next"];
+  else if (action === "goto") {
+    if (!target || typeof target !== "string") {
+      return res.status(400).json({ success: false, error: "Target commit hash is required for 'goto'." });
+    }
+    args = ["goto", target.trim()];
+  }
+
+  runSl(args, (err, stdout, stderr) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: stderr || err.message });
+    }
+    res.json({ success: true, action, message: stdout.trim() || `Navigated via 'sl ${args.join(" ")}'.` });
+  });
+});
+
+// 8e. GET /api/scm/web/status  — Check if sl web is running
+let slWebProcess = null;
+let slWebState = { running: false, url: null, port: 3011 };
+
+router.get("/web/status", (req, res) => {
+  res.json({ success: true, ...slWebState });
+});
+
+// 8f. POST /api/scm/web/start  — Start the sl web GUI server
+router.post("/web/start", (req, res) => {
+  if (slWebProcess && slWebState.running) {
+    return res.json({ success: true, ...slWebState, message: "Sapling Web is already running." });
+  }
+
+  const { spawn } = require("child_process");
+  const slExe = "sl";
+  const port = 3011;
+
+  const proc = spawn(slExe, ["web", "--port", String(port), "--no-open"], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
+    detached: false,
+  });
+
+  slWebProcess = proc;
+  let resolved = false;
+
+  const tryResolve = (data) => {
+    const text = String(data);
+    const match = text.match(/http:\/\/localhost:[0-9]+[^\s]*/);
+    if (match && !resolved) {
+      resolved = true;
+      slWebState = { running: true, url: match[0], port };
+      return res.json({ success: true, ...slWebState });
+    }
+  };
+
+  proc.stdout.on("data", tryResolve);
+  proc.stderr.on("data", tryResolve);
+
+  proc.on("exit", () => {
+    slWebProcess = null;
+    slWebState = { running: false, url: null, port: 3011 };
+  });
+
+  // Fallback: if no URL detected in 5s, assume it started on default port
+  setTimeout(() => {
+    if (!resolved) {
+      resolved = true;
+      const fallbackUrl = `http://localhost:${port}`;
+      slWebState = { running: true, url: fallbackUrl, port };
+      res.json({ success: true, ...slWebState });
+    }
+  }, 5000);
+});
+
+// 8g. POST /api/scm/web/stop  — Stop the sl web GUI server
+router.post("/web/stop", (req, res) => {
+  if (slWebProcess) {
+    try {
+      slWebProcess.kill();
+    } catch (e) {
+      // ignore kill errors
+    }
+    slWebProcess = null;
+  }
+  slWebState = { running: false, url: null, port: 3011 };
+  res.json({ success: true, message: "Sapling Web server stopped." });
+});
+
 // 8. POST /api/scm/exec
 router.post("/exec", (req, res) => {
   const { command } = req.body;
