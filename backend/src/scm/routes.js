@@ -428,88 +428,86 @@ router.post("/navigate", (req, res) => {
 });
 
 // 8e. GET /api/scm/web/status  — Check if sl web is running
-let slWebProcess = null;
-let slWebState = { running: false, url: null, port: 3011 };
-
 router.get("/web/status", (req, res) => {
-  res.json({ success: true, ...slWebState });
+  ensureStoreJournal();
+  const slExe = process.platform === "win32" ? "C:\\Users\\Ansh Dubey\\Sapling\\sl.exe" : "sl";
+  execFile(slExe, ["web", "--port", "3011", "--json"], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
+  }, (err, stdout) => {
+    if (!err && stdout) {
+      try {
+        const json = JSON.parse(stdout);
+        if (json.url) {
+          return res.json({
+            success: true,
+            running: true,
+            url: json.url,
+            port: json.port || 3011,
+          });
+        }
+      } catch (e) {}
+    }
+    res.json({ success: true, running: false, url: null, port: 3011 });
+  });
 });
 
-// 8f. POST /api/scm/web/start  — Start the sl web GUI server
+// 8f. POST /api/scm/web/start  — Start or connect to the sl web GUI server
 router.post("/web/start", (req, res) => {
-  if (slWebProcess && slWebState.running) {
-    return res.json({ success: true, ...slWebState, message: "Sapling Web is already running." });
-  }
-
-  const { spawn } = require("child_process");
+  ensureStoreJournal();
   const slExe = process.platform === "win32" ? "C:\\Users\\Ansh Dubey\\Sapling\\sl.exe" : "sl";
   const port = 3011;
 
-  ensureStoreJournal();
-
-  let proc;
-  try {
-    proc = spawn(slExe, ["web", "--port", String(port), "--no-open"], {
+  execFile(slExe, ["web", "--port", String(port), "--json"], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
+  }, (err, stdout) => {
+    if (!err && stdout) {
+      try {
+        const json = JSON.parse(stdout);
+        if (json.url) {
+          return res.json({
+            success: true,
+            running: true,
+            url: json.url,
+            port: json.port || port,
+            message: "Sapling Web GUI is active.",
+          });
+        }
+      } catch (e) {}
+    }
+    // If not already running, start with --force
+    execFile(slExe, ["web", "--port", String(port), "--force", "--no-open", "--json"], {
       cwd: REPO_ROOT,
       env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
-      shell: true,
-      detached: false,
+    }, (forceErr, forceOut) => {
+      try {
+        const json = JSON.parse(forceOut);
+        if (json.url) {
+          return res.json({
+            success: true,
+            running: true,
+            url: json.url,
+            port: json.port || port,
+            message: "Sapling Web GUI started successfully.",
+          });
+        }
+      } catch (e) {}
+      res.status(500).json({ success: false, error: forceErr ? forceErr.message : "Failed to obtain Sapling Web URL." });
     });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-
-  slWebProcess = proc;
-  let resolved = false;
-
-  const tryResolve = (data) => {
-    const text = String(data);
-    const match = text.match(/http:\/\/localhost:[0-9]+[^\s]*/);
-    if (match && !resolved) {
-      resolved = true;
-      slWebState = { running: true, url: match[0], port };
-      return res.json({ success: true, ...slWebState });
-    }
-  };
-
-  proc.stdout?.on("data", tryResolve);
-  proc.stderr?.on("data", tryResolve);
-
-  proc.on("error", (err) => {
-    if (!resolved) {
-      resolved = true;
-      res.status(500).json({ success: false, error: err.message });
-    }
   });
-
-  proc.on("exit", () => {
-    slWebProcess = null;
-    slWebState = { running: false, url: null, port: 3011 };
-  });
-
-  // Fallback: if no URL detected in 4s, check if port is open
-  setTimeout(() => {
-    if (!resolved) {
-      resolved = true;
-      const fallbackUrl = `http://localhost:${port}`;
-      slWebState = { running: true, url: fallbackUrl, port };
-      res.json({ success: true, ...slWebState });
-    }
-  }, 4000);
 });
 
 // 8g. POST /api/scm/web/stop  — Stop the sl web GUI server
 router.post("/web/stop", (req, res) => {
-  if (slWebProcess) {
-    try {
-      slWebProcess.kill();
-    } catch (e) {
-      // ignore kill errors
-    }
-    slWebProcess = null;
-  }
-  slWebState = { running: false, url: null, port: 3011 };
-  res.json({ success: true, message: "Sapling Web server stopped." });
+  ensureStoreJournal();
+  const slExe = process.platform === "win32" ? "C:\\Users\\Ansh Dubey\\Sapling\\sl.exe" : "sl";
+  execFile(slExe, ["web", "--port", "3011", "--kill"], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
+  }, () => {
+    res.json({ success: true, running: false, url: null, port: 3011, message: "Sapling Web server stopped." });
+  });
 });
 
 // 8. POST /api/scm/exec

@@ -110,13 +110,26 @@ export default function SourceControlPage() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Fetch sl web status on load
-  useEffect(() => {
-    fetch("/api/scm/web/status")
-      .then((r) => r.json())
-      .then((d) => { if (d.success) setWebStatus({ running: d.running, url: d.url, port: d.port }); })
-      .catch(() => {});
+  // Fetch sl web status on load & tab switch
+  const fetchWebStatus = useCallback(async () => {
+    try {
+      const r = await fetch("/api/scm/web/status");
+      const d = await r.json();
+      if (d && d.success) {
+        setWebStatus({ running: d.running, url: d.url, port: d.port });
+      }
+    } catch {}
   }, []);
+
+  useEffect(() => {
+    fetchWebStatus();
+  }, [fetchWebStatus]);
+
+  useEffect(() => {
+    if (activeTab === "isl") {
+      fetchWebStatus();
+    }
+  }, [activeTab, fetchWebStatus]);
   // Check persistent admin session on mount
   useEffect(() => {
     setIsMounted(true);
@@ -1296,7 +1309,10 @@ export default function SourceControlPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIframeKey((k) => k + 1)}
+                      onClick={() => {
+                        fetchWebStatus();
+                        setIframeKey((k) => k + 1);
+                      }}
                       className="text-xs"
                       title="Reload embedded view"
                     >
