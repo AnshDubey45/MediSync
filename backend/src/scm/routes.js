@@ -442,14 +442,22 @@ router.post("/web/start", (req, res) => {
   }
 
   const { spawn } = require("child_process");
-  const slExe = "sl";
+  const slExe = process.platform === "win32" ? "C:\\Users\\Ansh Dubey\\Sapling\\sl.exe" : "sl";
   const port = 3011;
 
-  const proc = spawn(slExe, ["web", "--port", String(port), "--no-open"], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
-    detached: false,
-  });
+  ensureStoreJournal();
+
+  let proc;
+  try {
+    proc = spawn(slExe, ["web", "--port", String(port), "--no-open"], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, PATH: `C:\\Users\\Ansh Dubey\\Sapling;${process.env.PATH || ""}` },
+      shell: true,
+      detached: false,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 
   slWebProcess = proc;
   let resolved = false;
@@ -464,15 +472,22 @@ router.post("/web/start", (req, res) => {
     }
   };
 
-  proc.stdout.on("data", tryResolve);
-  proc.stderr.on("data", tryResolve);
+  proc.stdout?.on("data", tryResolve);
+  proc.stderr?.on("data", tryResolve);
+
+  proc.on("error", (err) => {
+    if (!resolved) {
+      resolved = true;
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   proc.on("exit", () => {
     slWebProcess = null;
     slWebState = { running: false, url: null, port: 3011 };
   });
 
-  // Fallback: if no URL detected in 5s, assume it started on default port
+  // Fallback: if no URL detected in 4s, check if port is open
   setTimeout(() => {
     if (!resolved) {
       resolved = true;
@@ -480,7 +495,7 @@ router.post("/web/start", (req, res) => {
       slWebState = { running: true, url: fallbackUrl, port };
       res.json({ success: true, ...slWebState });
     }
-  }, 5000);
+  }, 4000);
 });
 
 // 8g. POST /api/scm/web/stop  — Stop the sl web GUI server
